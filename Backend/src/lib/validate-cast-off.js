@@ -1,6 +1,11 @@
 /** Allow small clock skew when comparing cast-off to server now. */
 export const CAST_OFF_FUTURE_TOLERANCE_MS = 15 * 60 * 1000;
 
+/** True only when the API process env is exactly `true`. Any other value keeps the future check on. */
+export function castOffAllowsFuture() {
+  return process.env.CAST_OFF_ALLOW_FUTURE === 'true';
+}
+
 /**
  * Resolve TB from a joined operation row (operation + optional plan timeline columns).
  * @param {Record<string, unknown> | null | undefined} row
@@ -27,15 +32,18 @@ export function resolveTbInstantFromOperationRow(row) {
 
 /**
  * @param {Date} castOffAt
- * @param {{ tbAt?: Date | null, now?: Date }} [opts]
+ * @param {{ tbAt?: Date | null, now?: Date, allowFuture?: boolean }} [opts]
  * @returns {{ ok: true } | { ok: false, error: string }}
  */
-export function validateCastOffAt(castOffAt, { tbAt = null, now = new Date() } = {}) {
+export function validateCastOffAt(
+  castOffAt,
+  { tbAt = null, now = new Date(), allowFuture = castOffAllowsFuture() } = {}
+) {
   if (!(castOffAt instanceof Date) || Number.isNaN(castOffAt.getTime())) {
     return { ok: false, error: 'Invalid cast_off_at' };
   }
   const nowMs = now.getTime();
-  if (castOffAt.getTime() > nowMs + CAST_OFF_FUTURE_TOLERANCE_MS) {
+  if (!allowFuture && castOffAt.getTime() > nowMs + CAST_OFF_FUTURE_TOLERANCE_MS) {
     return { ok: false, error: 'CAST Off cannot be in the future.' };
   }
   if (tbAt instanceof Date && !Number.isNaN(tbAt.getTime())) {

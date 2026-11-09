@@ -193,6 +193,49 @@ export function normalizeHubIncoterm(record) {
   return hubRecordEnvelope(record, values);
 }
 
+/** Raw DHM commodity type string (no Solid/Liquid normalization). */
+export function extractHubCommodityTypeRaw(data) {
+  if (!data || typeof data !== 'object') return null;
+  const raw = data.type ?? data.commodity_type ?? data.commodityType;
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  return s || null;
+}
+
+/** Case-insensitive; DHM catalog rows tagged "(not use)" are excluded from JPS commodity sync. */
+export function hubInboundDataContainsNotUseMarker(data) {
+  if (!data || typeof data !== 'object') return false;
+  const needle = '(not use)';
+  for (const raw of [
+    data.long_name,
+    data.longName,
+    data.name,
+    data.short_name,
+    data.shortName,
+    data.material_code,
+    data.materialCode,
+    data.code,
+  ]) {
+    if (raw != null && String(raw).toLowerCase().includes(needle)) return true;
+  }
+  return false;
+}
+
+/** @param {object|null} hubRecord normalized commodity envelope */
+export function hubNormalizedCommodityExcluded(hubRecord) {
+  if (!hubRecord?.values) return false;
+  const needle = '(not use)';
+  for (const raw of [
+    hubRecord.hubCode,
+    hubRecord.values.name,
+    hubRecord.values.short_name,
+    hubRecord.values.material_code,
+  ]) {
+    if (raw != null && String(raw).toLowerCase().includes(needle)) return true;
+  }
+  return false;
+}
+
 /** Map DHM commodity `type` to JPS `Liquid` | `Solid`. */
 export function normalizeHubCommodityType(raw) {
   const v = String(raw ?? '').trim();
@@ -233,31 +276,76 @@ export function normalizeHubPortMaster(record) {
   return hubRecordEnvelope(record, values);
 }
 
+/**
+ * DHM company (portal `/hub/company`) or organization catalog.
+ * Documented slug is `organization`; the hub UI slug is `company`. Both use these fields.
+ */
+export function normalizeHubOrganization(record) {
+  const data = record?.data && typeof record.data === 'object' ? record.data : null;
+  if (!data) return null;
+  const name = str(data.name ?? data.Name);
+  if (!name) return null;
+  const isActive = data.is_active === false || data.isActive === false ? false : true;
+  const values = {
+    name,
+    short_name: str(data.short_name ?? data.shortName ?? data.Short_Name),
+    company_code_sap: str(
+      data.company_code_sap ??
+        data.companyCodeSap ??
+        data.Company_Code_SAP ??
+        data.sap_code ??
+        data.sapCode
+    ),
+    country: str(data.country ?? data.Country),
+    is_active: isActive,
+  };
+  return hubRecordEnvelope(record, values);
+}
+
+/** Try the live company slug, then the documented organization slug. */
+export async function fetchAllOrganizationSyncRecords(cfg, fetchImpl = fetch) {
+  const slugs = ['company', 'organization'];
+  let lastErr;
+  for (const slug of slugs) {
+    try {
+      return await fetchAllSyncRecords(cfg, slug, normalizeHubOrganization, fetchImpl);
+    } catch (e) {
+      lastErr = e;
+      if (Number(e?.status) === 404) continue;
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
 /** DHM commodity → local si_commodities columns (before JPS-only defaults). */
 export function normalizeHubCommodity(record) {
   const data = record?.data && typeof record.data === 'object' ? record.data : null;
   if (!data) return null;
+  if (hubInboundDataContainsNotUseMarker(data)) return null;
   const name = str(data.long_name ?? data.longName ?? data.name);
   if (!name) return null;
   const uom = extractHubCommodityUom(data);
   const values = {
     name,
     hs_code: str(data.hs_code),
+    material_code: str(data.material_code ?? data.materialCode),
     uom,
     short_name: str(data.short_name ?? data.shortName),
-    commodity_type: normalizeHubCommodityType(data.type ?? data.commodity_type),
+    hub_type: extractHubCommodityTypeRaw(data),
   };
   return hubRecordEnvelope(record, values);
 }
 
 /**
- * @param {string} entityType vessel | incoterm | commodity | port_master
+ * @param {string} entityType vessel | incoterm | commodity | port_master | organization | company
  */
 export function normalizeHubRecord(entityType, record) {
   const t = String(entityType || '').toLowerCase();
   if (t === 'incoterm') return normalizeHubIncoterm(record);
   if (t === 'commodity') return normalizeHubCommodity(record);
   if (t === 'port_master') return normalizeHubPortMaster(record);
+  if (t === 'organization' || t === 'company') return normalizeHubOrganization(record);
   return normalizeHubVessel(record);
 }
 
@@ -276,6 +364,24 @@ export function parseSyncPage(body, normalizeRecord = normalizeHubVessel) {
  * Full snapshot for any /v1/sync/{slug} entity.
  * @param {(record: object) => object|null} normalizeRecord
  */
+/**
+ * Commodity sync snapshot; excludes hub rows whose key text contains "(not use)".
+ * @returns {Promise<{ records: object[], skippedNotUse: number }>}
+ */
+export async function fetchAllCommoditySyncRecords(cfg, fetchImpl = fetch) {
+  let skippedNotUse = 0;
+  const normalize = (record) => {
+    const data = record?.data;
+    if (hubInboundDataContainsNotUseMarker(data)) {
+      skippedNotUse += 1;
+      return null;
+    }
+    return normalizeHubCommodity(record);
+  };
+  const records = await fetchAllSyncRecords(cfg, 'commodity', normalize, fetchImpl);
+  return { records, skippedNotUse };
+}
+
 export async function fetchAllSyncRecords(cfg, slug, normalizeRecord, fetchImpl = fetch) {
   const headers = await resolveAuthHeaders(cfg, fetchImpl);
   const out = [];
@@ -301,6 +407,73 @@ export async function fetchAllSyncRecords(cfg, slug, normalizeRecord, fetchImpl 
  */
 export async function fetchAllVessels(cfg, fetchImpl = fetch) {
   return fetchAllSyncRecords(cfg, 'vessel', normalizeHubVessel, fetchImpl);
+}
+
+/** Lookup slugs for one local entity. Company tries the live slug, then the documented one. */
+export function lookupSlugsForEntity(entityType) {
+  if (entityType === 'organization') return ['company', 'organization'];
+  if (entityType === 'vessel') return ['vessel'];
+  if (entityType === 'incoterm') return ['incoterm'];
+  if (entityType === 'commodity') return ['commodity'];
+  if (entityType === 'port_master') return ['port_master'];
+  throw new Error(`Unknown entity type: ${entityType}`);
+}
+
+/**
+ * Lookup may return a sync envelope (`data`) or the golden record itself.
+ * Normalizers only read `record.data`.
+ */
+export function asSyncEnvelope(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const record = body.record && typeof body.record === 'object' ? body.record : body;
+  if (record.data && typeof record.data === 'object') return record;
+  return {
+    id: record.id ?? null,
+    version: record.version ?? null,
+    isDeleted: record.isDeleted === true || record.is_deleted === true,
+    updatedAt: record.updatedAt ?? record.updated_at ?? null,
+    data: record,
+  };
+}
+
+/**
+ * One golden record by hub code. Does not page the catalog.
+ * @param {string} entityType
+ */
+export async function fetchHubRecordByCode(cfg, entityType, hubCode, fetchImpl = fetch) {
+  const code = str(hubCode);
+  if (!code) {
+    const err = new Error('This record is not linked to DataHub.');
+    err.status = 400;
+    throw err;
+  }
+  const slugs = lookupSlugsForEntity(entityType);
+  const headers = await resolveAuthHeaders(cfg, fetchImpl);
+  let lastErr;
+  for (let i = 0; i < slugs.length; i += 1) {
+    const slug = slugs[i];
+    const url = `${cfg.baseUrl}/v1/lookup/${encodeURIComponent(slug)}/${encodeURIComponent(code)}`;
+    try {
+      const normalized = normalizeHubRecord(entityType, asSyncEnvelope(await fetchJson(url, headers, fetchImpl)));
+      if (!normalized || normalized.isDeleted) {
+        const err = new Error(`DataHub has no active record for hub code ${code}.`);
+        err.status = 404;
+        throw err;
+      }
+      return normalized;
+    } catch (e) {
+      lastErr = e;
+      const missing = Number(e?.status) === 404;
+      if (missing && i < slugs.length - 1) continue;
+      if (missing) {
+        const err = new Error(`DataHub has no active record for hub code ${code}.`);
+        err.status = 404;
+        throw err;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
 }
 
 /** True when a response body is a web page rather than an API payload. */

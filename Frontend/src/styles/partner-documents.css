@@ -1,0 +1,103 @@
+.partner-docs__title {
+  margin: 0 0 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-charcoal);
+}
+
+.partner-docs__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.125rem;
+}
+
+.partner-docs__link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 4px;
+  color: var(--color-text-charcoal);
+  text-decoration: none;
+}
+
+.partner-docs__link:hover,
+.partner-docs__link:focus-visible {
+  background: var(--color-bg-light);
+}
+
+.partner-docs__name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.partner-docs__url {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+  color: var(--color-text-steel);
+}
+
+.partner-docs__ext {
+  flex: 0 0 auto;
+}
+
+.partner-docs--card {
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  background: var(--color-bg-lighter);
+}
+
+.partner-docs--menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 18rem;
+  max-width: min(26rem, calc(100vw - 1rem));
+  padding: 0.5rem;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 6px;
+  background: var(--color-bg-white);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+}
+
+.si-ref-with-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.partner-docs-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  height: 1.25rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 999px;
+  background: var(--color-bg-white);
+  color: var(--color-text-steel);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.partner-docs-cue:hover,
+.partner-docs-cue[aria-expanded='true'] {
+  border-color: var(--color-text-steel);
+  color: var(--color-text-charcoal);
+}
+
+@media (max-width: 640px) {
+  .partner-docs__link {
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+}

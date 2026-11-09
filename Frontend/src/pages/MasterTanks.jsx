@@ -13,6 +13,7 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
@@ -320,7 +321,7 @@ export default function MasterTanks() {
         ) : tanks.length === 0 ? (
           <p className="text-steel">No tanks for this port. Click Add Tank or Import CSV.</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--pin-actions table-wrap--pin-actions--pair">
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -329,23 +330,13 @@ export default function MasterTanks() {
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
                 {displayRows.map((tank) => (
                   <tr key={tank.id} className="allocation-table__row">
-                    <td><strong>{tank.code || '—'}</strong></td>
-                    <td>{tank.name || '—'}</td>
-                    <td>
-                      {tank.description
-                        ? tank.description.length > 60
-                          ? `${tank.description.slice(0, 60)}…`
-                          : tank.description
-                        : '—'}
-                    </td>
-                    <td className="text-steel">{formatMasterCreatedLine(tank)}</td>
-                    <td className="text-steel">{formatMasterLastUpdatedLine(tank)}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
                         <button
@@ -366,6 +357,17 @@ export default function MasterTanks() {
                         </button>
                       </div>
                     </td>
+                    <td><strong>{tank.code || '—'}</strong></td>
+                    <td>{tank.name || '—'}</td>
+                    <td>
+                      {tank.description
+                        ? tank.description.length > 60
+                          ? `${tank.description.slice(0, 60)}…`
+                          : tank.description
+                        : '—'}
+                    </td>
+                    <td className="text-steel">{formatMasterCreatedLine(tank)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(tank)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -380,7 +382,7 @@ export default function MasterTanks() {
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" role="presentation" onClick={closeModal}>
+        <StickyFormOverlay onClose={closeModal}>
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="master-tank-modal-title" onClick={(e) => e.stopPropagation()}>
             <h2 id="master-tank-modal-title" className="modal__title">
               {editingId != null ? 'Edit Tank' : 'Add Tank'}
@@ -432,7 +434,7 @@ export default function MasterTanks() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
     </div>
   )

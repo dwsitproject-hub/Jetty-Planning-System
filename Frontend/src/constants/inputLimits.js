@@ -15,6 +15,8 @@ export const MAX_MILESTONE_SUBSTEP_TITLE_CHARS = 100
 
 export const MAX_POSTCHECK_RESULT_CHARS = 500
 export const MAX_SAMPLING_PALKA_FIELD_CHARS = 20
+/** Per-sample remark on a palka / tank row (CoA line note). */
+export const MAX_SAMPLING_RECORD_REMARK_CHARS = 200
 /** Sampling quality summary values (FFA/Moisture average, DOBI, Iodine Value) */
 export const MAX_SAMPLING_METRIC_CHARS = 10
 
@@ -22,6 +24,9 @@ export const MAX_LOGIN_USERNAME_CHARS = 50
 /** Login identifier field accepts username or email (RFC 5321 local+domain max). */
 export const MAX_LOGIN_IDENTIFIER_CHARS = 254
 export const MAX_LOGIN_PASSWORD_CHARS = 50
+
+/** Optional JPS-only rollup label on Master Commodity */
+export const MAX_COMMODITY_GROUP_CHARS = 100
 
 export const MAX_MASTER_JETTY_NAME_CHARS = 100
 export const MAX_MASTER_DESCRIPTION_CHARS = 100

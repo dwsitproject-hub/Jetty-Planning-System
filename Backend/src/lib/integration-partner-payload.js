@@ -1,8 +1,8 @@
 /**
  * Partner integration API — enriched status + schedule payload (GET + webhooks).
- * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.2
+ * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.7
  */
-import { deriveExternalStatus } from './integration-master-data.js';
+import { deriveExternalStatus, isPartnerSubmissionDeleted } from './integration-master-data.js';
 
 /** @param {Date | string | null | undefined} v */
 export function timestampToIso(v) {
@@ -31,11 +31,25 @@ export function buildPartnerSchedule(row) {
     tc: coalesceTs(row.sp_tc, row.op_tc),
     cast_off_at: coalesceTs(row.sp_cast_off_at, row.op_cast_off_at),
     sailed_at: coalesceTs(row.sp_sailed_at, row.op_sailed_at),
+    /** ATS / Hose On — Cargo Operations operation window start (partner alias). */
+    cargo_ops_start_at: timestampToIso(row.op_cargo_ops_window_start_at),
+    /** ATC / Hose Off — Cargo Operations operation window end (partner alias). */
+    cargo_ops_end_at: timestampToIso(row.op_cargo_ops_window_end_at),
+    /** Cargo Done — latest end of cargo operations and final checks (management dashboard rule). */
+    cargo_done_at: timestampToIso(row.op_cargo_done_at),
   };
 }
 
 /** @param {Record<string, unknown>} row */
 function buildPartnerApproval(row) {
+  if (isPartnerSubmissionDeleted(row)) {
+    return {
+      status: 'Deleted',
+      approved_at: timestampToIso(row.approved_at),
+      rejected_at: timestampToIso(row.rejected_at),
+      rejection_reason: row.rejection_reason ?? null,
+    };
+  }
   const internal =
     row.approval_status === 'Submitted'
       ? 'Submitted'
@@ -52,9 +66,12 @@ function buildPartnerApproval(row) {
   };
 }
 
+/** Stages from jetty assignment onward carry the allocation block. */
+const ALLOCATED_STAGES = new Set(['Allocated', 'Berthed', 'Start Cargo', 'Cargo Done', 'Sailed Off']);
+
 /** @param {Record<string, unknown>} row @param {string} status */
 function buildPartnerAllocation(row, status) {
-  if (status !== 'Allocated' && status !== 'Sailed') return null;
+  if (!ALLOCATED_STAGES.has(status)) return null;
   const berthing = coalesceTs(
     row.op_docking_start_time,
     row.sp_docking_start_time,
@@ -79,7 +96,7 @@ export function buildPartnerInstructionPayload(row) {
   const status = deriveExternalStatus(row);
   const schedule = buildPartnerSchedule(row);
   let etrMinutes = null;
-  if (schedule.etc && status !== 'Sailed') {
+  if (schedule.etc && status !== 'Sailed Off') {
     const etcMs = new Date(schedule.etc).getTime();
     const diff = Math.ceil((etcMs - Date.now()) / 60_000);
     if (Number.isFinite(diff)) etrMinutes = Math.max(0, diff);
@@ -99,6 +116,8 @@ export function buildPartnerInstructionPayload(row) {
     etd: payload.etd ?? null,
     port_id: Number(row.port_id),
     port_hub_code: row.port_hub_code ?? null,
+    company_hub_code: row.company_hub_code ?? null,
+    company_name: row.company_name ?? null,
     approval: buildPartnerApproval(row),
     schedule,
     etr_minutes: etrMinutes,

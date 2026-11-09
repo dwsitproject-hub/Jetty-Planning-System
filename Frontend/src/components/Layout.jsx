@@ -42,6 +42,7 @@ const navStructure = [
   { path: '/allocation-plans', labelKey: 'allocationPlan', icon: '⚓' },
   { path: '/at-berth', labelKey: 'atBerth', icon: '🚢' },
   { path: '/operator/at-berth', labelKey: 'operatorMode', icon: '📱' },
+  { path: '/qc/sampling', labelKey: 'qcSampling', icon: '🧪' },
   { path: '/verification', labelKey: 'clearance', icon: '🚀' },
   { path: '/demurrage-risk-calculator', labelKey: 'demurrageCalculator', icon: '🧮' },
   { path: '/reporting', labelKey: 'reporting', icon: '📑' },
@@ -62,6 +63,7 @@ function isPortScopeBypassed(pathname) {
   if (pathname.startsWith('/master/vessel')) return true
   if (pathname.startsWith('/master/si-')) return true
   if (pathname.startsWith('/master/freight-terms')) return true
+  if (pathname.startsWith('/master/qc-specs')) return true
   return false
 }
 

@@ -34,6 +34,12 @@ export function voyageFlowRate(r) {
   return null
 }
 
+/** Voyage active flow rate: moved ÷ hours a cargo segment was running. */
+export function voyageActiveFlowRate(r) {
+  const v = r?.voyageActiveRateMtH
+  return v != null && Number.isFinite(v) && v > 0 ? v : null
+}
+
 function byPurpose(rows, purpose) {
   return rows.filter((r) => r.purpose === purpose)
 }

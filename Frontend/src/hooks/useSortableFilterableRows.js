@@ -5,9 +5,13 @@ import { emptyFiltersForColumns, filterAndSortRows } from '../utils/sortableFilt
  * @param {Array} rows
  * @param {Array<{ key: string, label: string, getSortValue: (row: unknown) => unknown, getFilterValue?: (row: unknown) => unknown }>} columns
  * @param {{ key: string, dir: 'asc' | 'desc' }} defaultSort
+ * @param {Record<string, unknown>} [initialFilters] merged over the empty column filters on first render
  */
-export function useSortableFilterableRows(rows, columns, defaultSort) {
-  const [filters, setFilters] = useState(() => emptyFiltersForColumns(columns))
+export function useSortableFilterableRows(rows, columns, defaultSort, initialFilters) {
+  const [filters, setFilters] = useState(() => ({
+    ...emptyFiltersForColumns(columns),
+    ...(initialFilters || {}),
+  }))
   const [sortState, setSortState] = useState(defaultSort)
 
   const updateFilter = useCallback((key, value) => {

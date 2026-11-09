@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { fetchShippingInstruction, fetchSiNpwpMaster, updateShippingInstruction } from '../api/shippingInstructions'
+import { fetchShippingInstruction, updateShippingInstruction } from '../api/shippingInstructions'
 import { useRbac } from '../context/RbacContext'
-import { formatBlSplitFromBreakdown, getPrintedSiNumber, formatFreightForSi } from '../utils/siBlSplit'
 import { formatSiSignOffDate } from '../utils/siFormPlaceDate'
-import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
-import { SI_FORM_APPROVAL_SIGNATURE_NOTE, getShipperLines } from '../utils/siViewModel'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { SI_FORM_APPROVAL_SIGNATURE_NOTE } from '../utils/siViewModel'
+import SiDocumentView from '../components/SiDocumentView'
 import SiFormReferenceDates from '../components/SiFormReferenceDates'
 import FlowPill from '../components/FlowPill'
 import '../styles/si-approval.css'
@@ -18,21 +18,6 @@ import { triggerFileDownload } from '../utils/filePreview'
 const SI_FORM_COMPANY = {
   name: 'PT ENERGI UNGGUL PERSADA',
   address: 'GAMA TOWER, LT 41, JL HR RASUNA SAID, KAV C 22, KARET KUNINGAN, SETIABUDI, KOTA ADM. JAKARTA SELATAN, DKI JAKARTA, 12940',
-}
-
-function formatEtaBontang(si) {
-  const from = si.etaFrom
-  const to = si.etaTo
-  if (!from && !to) {
-    return si.etaDateTime ? formatDateDisplay(si.etaDateTime) : '—'
-  }
-  if (from && to && from !== to) {
-    const d1 = new Date(from)
-    const d2 = new Date(to)
-    const mon2 = d2.toLocaleString('en-GB', { month: 'short' }).toUpperCase()
-    return `${d1.getDate()} - ${d2.getDate()} ${mon2} ${d2.getFullYear()}`
-  }
-  return formatDateDisplay(from || to)
 }
 
 function mapShippingInstructionRow(row) {
@@ -105,7 +90,6 @@ export default function SIApproval() {
   const [approvalId, setApprovalId] = useState(null) // set when user clicks Approve & Sign-off
   const [uploadedManualDocs, setUploadedManualDocs] = useState([]) // { id, name, size }
   const [approveError, setApproveError] = useState(null)
-  const [npwpMaster, setNpwpMaster] = useState(null)
 
   const siFromState = location.state?.si
   const [apiSi, setApiSi] = useState(null)
@@ -138,42 +122,6 @@ export default function SIApproval() {
     }
   }, [si])
 
-  useEffect(() => {
-    if (!si) return
-    const portId = si?.resolvedPortId
-    let cancelled = false
-    fetchSiNpwpMaster(portId)
-      .then((r) => {
-        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
-      })
-      .catch(() => {
-        if (!cancelled) setNpwpMaster(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [si?.resolvedPortId, si?.id])
-
-  const breakdownRows = si?.breakdown || []
-  const purposeLower = (si?.purpose || '').toLowerCase()
-  // Purpose values can vary (e.g. 'Unloading', 'UNLOADING', sometimes shorthand).
-  const isUnloading =
-    purposeLower === 'unloading' ||
-    purposeLower.includes('unload') ||
-    purposeLower === 'disch' ||
-    purposeLower.includes('disch')
-  const shipperLines = isUnloading ? getShipperLines(si) : []
-  const totalsByUnit = breakdownRows.reduce((acc, r) => {
-    const code = r.metricCode || '?'
-    acc[code] = (acc[code] || 0) + (Number(r.qty) || 0)
-    return acc
-  }, {})
-  const totalQtyLabel =
-    Object.keys(totalsByUnit).length === 0
-      ? '—'
-      : Object.entries(totalsByUnit)
-          .map(([code, sum]) => `${Number(sum).toLocaleString('id-ID')} ${code}`)
-          .join(' · ')
   const lifecycle = si ? getMockLifecycle(si) : []
 
   const handlePrint = () => {
@@ -308,141 +256,7 @@ export default function SIApproval() {
       <div className="si-approval-layout">
         <div className="si-approval-main si-approval-form-print">
           <div className="si-form">
-            {!isUnloading && (
-              <>
-                <header className="si-form__header">
-                  <div className="si-form__company">{SI_FORM_COMPANY.name}</div>
-                  <div className="si-form__address">{SI_FORM_COMPANY.address}</div>
-                  <div className="si-form__line" />
-                </header>
-                <div className="si-form__recipient">
-                  MESSRS<br />
-                  {si.agent ? `PT. ${si.agent}` : 'PT. Tirta Permai Bahari (TPB Agency)'}
-                </div>
-                <h1 className="si-form__title">SHIPPING – INSTRUCTION</h1>
-                <p className="si-form__docno">No.: {getPrintedSiNumber(si)}</p>
-              </>
-            )}
-          {isUnloading ? (
-            <>
-              <div className="si-view-summary">
-                <div className="si-view-summary__row">
-                  <span className="si-view-summary__label">VESSEL:</span>
-                  <span className="si-view-summary__value">{si.vesselName || si.vesselId || '—'}</span>
-                </div>
-                <div className="si-view-summary__row">
-                  <span className="si-view-summary__label">COMMODITY:</span>
-                  <span className="si-view-summary__value">{si.commodity || '—'}</span>
-                </div>
-                <div className="si-view-summary__row">
-                  <span className="si-view-summary__label">SHIPPER:</span>
-                  <span className="si-view-summary__value">
-                    {shipperLines.map((line, i) => (
-                      <span key={i}>
-                        {line}
-                        {i < shipperLines.length - 1 ? <br /> : null}
-                      </span>
-                    ))}
-                  </span>
-                </div>
-                <div className="si-view-summary__row">
-                  <span className="si-view-summary__label">LOADING PORT:</span>
-                  <span className="si-view-summary__value">{si.loadingPort || '—'}</span>
-                </div>
-                <div className="si-view-summary__row">
-                  <span className="si-view-summary__label">QTY:</span>
-                  <span className="si-view-summary__value">{totalQtyLabel}</span>
-                </div>
-                <div className="si-view-summary__row">
-                  <span className="si-view-summary__label">ETA:</span>
-                  <span className="si-view-summary__value">{formatEtaBontang(si)}</span>
-                </div>
-                <div className="si-view-summary__row">
-                  <span className="si-view-summary__label">TERM:</span>
-                  <span className="si-view-summary__value">{si.term || '—'}</span>
-                </div>
-              </div>
-
-              <div className="si-view-table-wrap">
-                <table className="si-view-table">
-                  <thead>
-                    <tr>
-                      <th className="si-view-table__th">Shipper</th>
-                      <th className="si-view-table__th">Commodity</th>
-                      <th className="si-view-table__th si-view-table__th--num">Qty</th>
-                      <th className="si-view-table__th">Unit</th>
-                      <th className="si-view-table__th">Kontrak</th>
-                      <th className="si-view-table__th">PO</th>
-                      <th className="si-view-table__th">Keterangan</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {breakdownRows.length > 0 ? (
-                      breakdownRows.map((row, i) => (
-                        <tr key={i}>
-                          <td className="si-view-table__cell">{row.shipperName || '—'}</td>
-                          <td className="si-view-table__cell">{row.commodityName || '—'}</td>
-                          <td className="si-view-table__cell si-view-table__cell--num">
-                            {row.qty != null ? Number(row.qty).toLocaleString('id-ID') : '—'}
-                          </td>
-                          <td className="si-view-table__cell">{row.metricCode || '—'}</td>
-                          <td className="si-view-table__cell">{row.contractNo || '—'}</td>
-                          <td className="si-view-table__cell">{row.poNo || '—'}</td>
-                          <td className="si-view-table__cell">{row.remarks || '—'}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td className="si-view-table__cell">—</td>
-                        <td className="si-view-table__cell">—</td>
-                        <td className="si-view-table__cell si-view-table__cell--num">—</td>
-                        <td className="si-view-table__cell">—</td>
-                        <td className="si-view-table__cell">—</td>
-                        <td className="si-view-table__cell">—</td>
-                        <td className="si-view-table__cell">—</td>
-                      </tr>
-                    )}
-                    <tr className="si-view-table__total">
-                      <td colSpan={6} className="si-view-table__cell si-view-table__cell--total-label">TOTAL</td>
-                      <td className="si-view-table__cell si-view-table__cell--total">{totalQtyLabel}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : (
-            <dl className="si-form__body">
-              <dt>Vessel Name</dt>
-              <dd>
-                {si.vesselName || si.vesselId || '—'}
-                {si.voyageNo ? ` ${si.voyageNo}` : ''}
-              </dd>
-              <dt>Descr. of Good</dt>
-              <dd>{si.commodity || si.product || '—'}</dd>
-              <dt>Quantity</dt>
-              <dd><strong>{totalQtyLabel}</strong></dd>
-              <dt>BL Split</dt>
-              <dd><strong>{formatBlSplitFromBreakdown(breakdownRows)}</strong></dd>
-              <dt>Shipment From</dt>
-              <dd>{si.loadingPort || 'BONTANG, INDONESIA'}</dd>
-              <dt>Destination</dt>
-              <dd>{si.destinationText || '—'}</dd>
-              <dt>Bill of Lading</dt>
-              <dd style={{ whiteSpace: 'pre-wrap' }}>{si.billOfLadingClause || '—'}</dd>
-              <dt>Consignee</dt>
-              <dd style={{ whiteSpace: 'pre-wrap' }}>{si.consigneeText || '—'}</dd>
-              <dt>Notify Party</dt>
-              <dd style={{ whiteSpace: 'pre-wrap' }}>{si.notifyPartyText || '—'}</dd>
-              <dt>Freight</dt>
-              <dd>{formatFreightForSi(si)}</dd>
-              <dt>Shipper</dt>
-              <dd>{SI_FORM_COMPANY.name} {SI_FORM_COMPANY.address}</dd>
-              <dt>NPWP</dt>
-              <dd>{npwpMaster || '—'}</dd>
-              <dt>BL Indicated</dt>
-              <dd style={{ whiteSpace: 'pre-wrap' }}>{si.blIndicated || 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID'}</dd>
-            </dl>
-          )}
+            <SiDocumentView si={si} />
             <SiFormReferenceDates
               documentDate={si.documentDate}
               createdAt={si.receivedAt}

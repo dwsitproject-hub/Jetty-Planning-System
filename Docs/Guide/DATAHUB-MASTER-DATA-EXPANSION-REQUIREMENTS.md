@@ -148,7 +148,7 @@ Kept here for completeness/reference — this is the one entity DHM and JPS alre
 | `Vessel_Gross_Tonnage` | `vessel_gross_tonnage` | numeric(14,3) | snapshotted onto the Shipment Plan |
 | `Vessel_Draft` | `vessel_draft` | numeric(10,2) | snapshotted onto the Shipment Plan; checked against jetty draft |
 | `Vessel_Length_Overral` (hub's spelling) | `vessel_length_overall` | text→numeric | snapshotted onto the Shipment Plan as `vessel_loa_m`; checked against jetty length |
-| `Vessel_Type` | `vessel_type` | enum `barge`\|`tanker`\|`SPOB` | |
+| `Vessel_Type` | `vessel_type` | enum `barge`\|`tanker`\|`SPOB`\|`tugboat`\|`wooden boat` | Optional text enum from the live catalog |
 | `Heater` | `heater` | boolean | |
 | `Type_lambung` (hull type) | `type_lambung` | enum (3 values) | |
 | `Type_Charter` | `type_charter` | enum `Voyage Charter`\|`Time Charter` | |

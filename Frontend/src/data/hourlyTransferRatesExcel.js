@@ -83,7 +83,7 @@ export function buildHourlyTransferRatesExportRows({
     jetty,
     vesselName: vessel,
     clockHour: formatHourlyRangeDisplay(row.hourStart, row.hourEnd, rangeOpts),
-    tank: row.tankCode || '—',
+    tank: row.tankCode ? (row.tankOverride ? `${row.tankCode} (override)` : row.tankCode) : '—',
     moved: formatDisplayCargoQty(row.tankDisplayQtyMoved, unit),
     rate: formatRateForExport(row.rateTph, unit),
     status: formatHourlyStatusLabel(row.movementStatus, t),

@@ -4,7 +4,6 @@
 
 import {
   cargoWindowFromLines,
-  computeAvgRateTph,
   loadOperationProgressContext,
   summarizeCargoProgressContext,
 } from './operational-progress.js';
@@ -16,8 +15,10 @@ export function productKeyFromCommodityLabel(commodity) {
   return s.toUpperCase();
 }
 
-/** @param {object} line */
+/** Group when set, otherwise short name then long name. Matches the dashboard slice key. */
 export function lineProductKey(line) {
+  const group = String(line?.commodityGroup ?? '').trim();
+  if (group) return productKeyFromCommodityLabel(group);
   const label = line?.commodityShortName || line?.commodityName || '';
   return productKeyFromCommodityLabel(label);
 }
@@ -95,13 +96,15 @@ export function productKeysForRates(ctx) {
  * @param {number} [nowMs]
  */
 export function buildCargoRateResult(summary, windowLines, nowMs = Date.now()) {
+  const meta = { source: summary?.source ?? null, atgPartial: summary?.atgPartial ?? false };
   if (!summary || !(Number(summary.movedQty) > 0)) {
     return {
       movedQty: null,
       loggedHours: null,
       rateMtH: null,
-      source: summary?.source ?? null,
-      atgPartial: summary?.atgPartial ?? false,
+      activeHours: null,
+      activeRateMtH: null,
+      ...meta,
       firstLoggedAt: null,
       lastLoggedAt: null,
     };
@@ -111,35 +114,64 @@ export function buildCargoRateResult(summary, windowLines, nowMs = Date.now()) {
   const rateEndAt =
     summary.isLive || summary.hasActiveCargo ? new Date(nowMs).toISOString() : lastLoggedAt;
   const movedQty = Number(summary.movedQty) || 0;
-  const rateMtH = computeAvgRateTph(movedQty, firstLoggedAt, rateEndAt);
   const startMs = firstLoggedAt ? new Date(firstLoggedAt).getTime() : NaN;
   const endMs = rateEndAt ? new Date(rateEndAt).getTime() : NaN;
-  const loggedHours =
-    Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs
-      ? +((endMs - startMs) / 3600000).toFixed(2)
-      : null;
-
-  if (loggedHours == null || !(loggedHours > 0) || !(rateMtH > 0)) {
-    return {
-      movedQty: movedQty > 0 ? movedQty : null,
-      loggedHours: loggedHours > 0 ? loggedHours : null,
-      rateMtH: null,
-      source: summary.source ?? null,
-      atgPartial: summary.atgPartial ?? false,
-      firstLoggedAt,
-      lastLoggedAt: rateEndAt,
-    };
-  }
+  const windowHours = Number.isFinite(startMs) && Number.isFinite(endMs) ? (endMs - startMs) / HOUR_MS : 0;
+  const activeHours = activeCargoHours(windowLines, endMs);
 
   return {
     movedQty,
-    loggedHours,
-    rateMtH: +rateMtH.toFixed(2),
-    source: summary.source ?? null,
-    atgPartial: summary.atgPartial ?? false,
+    loggedHours: roundedHours(windowHours),
+    rateMtH: rateOrNull(movedQty, windowHours),
+    activeHours: roundedHours(activeHours),
+    activeRateMtH: rateOrNull(movedQty, activeHours),
+    ...meta,
     firstLoggedAt,
     lastLoggedAt: rateEndAt,
   };
+}
+
+const HOUR_MS = 3600000;
+
+function roundedHours(hours) {
+  return hours > 0 ? +hours.toFixed(2) : null;
+}
+
+function rateOrNull(qty, hours) {
+  return qty > 0 && hours > 0 ? +(qty / hours).toFixed(2) : null;
+}
+
+/**
+ * Hours when at least one cargo segment was running (union of segment windows).
+ * Gaps between segments are excluded; overlapping tank segments count once.
+ * Open segments end at `openEndMs` (now for live cargo, else the last logged end).
+ * @param {Array<{ startedAt?: string|null, endedAt?: string|null }>} lines
+ * @param {number} openEndMs
+ */
+export function activeCargoHours(lines = [], openEndMs = NaN) {
+  const spans = (lines || [])
+    .map((l) => {
+      const s = l?.startedAt ? new Date(l.startedAt).getTime() : NaN;
+      const e = l?.endedAt ? new Date(l.endedAt).getTime() : openEndMs;
+      return [s, e];
+    })
+    .filter(([s, e]) => Number.isFinite(s) && Number.isFinite(e) && e > s)
+    .sort((a, b) => a[0] - b[0]);
+
+  let totalMs = 0;
+  let curStart = null;
+  let curEnd = null;
+  for (const [s, e] of spans) {
+    if (curEnd != null && s <= curEnd) {
+      curEnd = Math.max(curEnd, e);
+      continue;
+    }
+    if (curEnd != null) totalMs += curEnd - curStart;
+    curStart = s;
+    curEnd = e;
+  }
+  if (curEnd != null) totalMs += curEnd - curStart;
+  return totalMs / HOUR_MS;
 }
 
 /**

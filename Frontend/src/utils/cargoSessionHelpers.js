@@ -1,10 +1,13 @@
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import { readAtgQtyFromRef } from './atgQty.js'
 import { normalizeForApi } from './scheduleDateTime'
+import { carryManualOverride } from './cargoProgressResolvers.js'
 export {
   buildLiveCargoProgressSnapshot,
   findOpenCargoLoadLine,
   partitionDraftTanks,
+  draftOverrideTankIds,
+  carryManualOverride,
   resolveCargoProgressTotalLoaded,
   resolveDefaultCargoOperationWindowStart,
   resolveOpenLineLiveQty,
@@ -66,6 +69,7 @@ export function mapExistingCargoLine(l, entry) {
     atgQtyMode: l.atgQtyMode || 'auto',
     manualQty: l.manualQty,
     commodityId: l.commodityId != null ? String(l.commodityId) : undefined,
+    ...carryManualOverride(l),
   }
 }
 

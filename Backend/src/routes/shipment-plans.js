@@ -11,6 +11,8 @@ import { loadOperationJoined, toOp } from './operations.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { companyLabel } from '../lib/company-for-instruction.js';
+import { PLAN_PARTNER_SOURCE_JOIN, SI_PARTNER_SOURCE_JOIN, mapSiPartnerFields } from '../lib/si-partner-source.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
 import { validateCastOffAt } from '../lib/validate-cast-off.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
@@ -19,6 +21,12 @@ import {
   POST_BERTH_PLAN_EDIT_ERROR,
 } from '../lib/si-pre-berth-edit.js';
 import { softDeleteOperationInTransaction } from '../lib/operation-soft-delete.js';
+import { allocateInternalSiNumber, isInternalSiReference } from '../lib/internal-si-number.js';
+import {
+  decideVesselMasterWrite,
+  planDimensionsFromBody,
+  resolveLinkedPlanVesselSnapshot,
+} from '../lib/resolve-master-vessel.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -76,6 +84,11 @@ function parseSiChildrenJson(val) {
         etaFrom: r.eta_from ?? null,
         etaTo: r.eta_to ?? null,
         loadingPortId: r.loading_port_id != null ? Number(r.loading_port_id) : null,
+        companyId: r.company_id != null ? Number(r.company_id) : null,
+        companyName: r.company_name ?? null,
+        companyShortName: r.company_short_name ?? null,
+        companyLabel: companyLabel({ name: r.company_name, short_name: r.company_short_name }) || null,
+        ...mapSiPartnerFields(r),
         breakdown,
         commodityQtyDisplay: totalQtyDisplay,
       };
@@ -93,10 +106,14 @@ function toPlanListRow(row) {
     portId: Number(row.port_id),
     planReference: row.plan_reference ?? null,
     vesselName: row.vessel_name,
+    masterVesselId: row.master_vessel_id != null ? Number(row.master_vessel_id) : null,
+    vesselLinkStatus: row.master_vessel_id != null ? 'linked' : 'legacy',
     vesselCapacity: row.vessel_capacity != null ? Number(row.vessel_capacity) : null,
     vesselLoaM: row.vessel_loa_m != null ? Number(row.vessel_loa_m) : null,
     vesselGrossTonnage: row.vessel_gross_tonnage != null ? Number(row.vessel_gross_tonnage) : null,
     vesselDraft: row.vessel_draft != null ? Number(row.vessel_draft) : null,
+    vesselType: row.vessel_type ?? null,
+    vesselHullType: row.vessel_hull_type ?? null,
     vesselDwt: row.vessel_dwt != null ? Number(row.vessel_dwt) : null,
     jettyId: row.jetty_id != null ? Number(row.jetty_id) : null,
     jettyName: row.jetty_name ?? null,
@@ -119,6 +136,7 @@ function toPlanListRow(row) {
     agentName: row.agent_name ?? null,
     externalReference: row.external_reference ?? null,
     requestedBy: row.requested_by ?? null,
+    partnerName: row.plan_partner_name ?? null,
     approvalStatus: row.approval_status,
     siCount,
     shippingInstructions,
@@ -143,6 +161,7 @@ function parseSiBreakdownJson(val) {
       contractNo: r.contract_no ?? null,
       poNo: r.po_no ?? null,
       soNo: r.so_no ?? null,
+      stoNo: r.sto_no ?? null,
       remarks: r.remarks ?? null,
       shipperId: r.shipper_id != null ? Number(r.shipper_id) : null,
       shipperName: r.shipper_name ?? null,
@@ -157,6 +176,7 @@ function toSiChildRow(row) {
   return {
     id: Number(row.id),
     referenceNumber: row.reference_number ?? null,
+    noExternalSi: row.no_external_si === true,
     vesselName: row.vessel_name,
     commodity: row.commodity ?? null,
     purpose: row.purpose,
@@ -165,6 +185,10 @@ function toSiChildRow(row) {
     etaFrom: row.eta_from ?? null,
     etaTo: row.eta_to ?? null,
     loadingPortId: row.loading_port_id != null ? Number(row.loading_port_id) : null,
+    companyId: row.company_id != null ? Number(row.company_id) : null,
+    companyName: row.company_name ?? null,
+    companyShortName: row.company_short_name ?? null,
+    companyLabel: companyLabel({ name: row.company_name, short_name: row.company_short_name }) || null,
     breakdown,
   };
 }
@@ -210,6 +234,7 @@ router.get('/', async (req, res) => {
   let sql = `
     SELECT sp.*, j.name AS jetty_name, spp.code AS purpose_code,
            agp.name AS agent_name,
+           sp_partner.partner_name AS plan_partner_name,
            (SELECT COUNT(*)::int FROM shipping_instructions si
             WHERE si.shipment_plan_id = sp.id AND si.deleted_at IS NULL) AS si_count,
            (SELECT COALESCE(
@@ -223,6 +248,13 @@ router.get('/', async (req, res) => {
                   'eta_from', si.eta_from,
                   'eta_to', si.eta_to,
                   'loading_port_id', si.loading_port_id,
+                  'company_id', si.company_id,
+                  'company_name', mc.name,
+                  'company_short_name', mc.short_name,
+                  'partner_name', si_partner.partner_name,
+                  'partner_si_document_url', si.partner_si_document_url,
+                  'partner_contract_document_url', si.partner_contract_document_url,
+                  'partner_bl_document_url', si.partner_bl_document_url,
                   'breakdown', (
                     SELECT COALESCE(
                       json_agg(
@@ -251,12 +283,15 @@ router.get('/', async (req, res) => {
               '[]'::json
             )
             FROM shipping_instructions si
+            LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
+            ${SI_PARTNER_SOURCE_JOIN}
             WHERE si.shipment_plan_id = sp.id AND si.deleted_at IS NULL
            ) AS si_children_json
     FROM shipment_plans sp
     LEFT JOIN jetties j ON j.id = sp.jetty_id AND j.deleted_at IS NULL
     LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
     LEFT JOIN si_agents agp ON agp.id = sp.agent_id AND agp.deleted_at IS NULL
+    ${PLAN_PARTNER_SOURCE_JOIN}
     WHERE sp.port_id = $1 AND sp.deleted_at IS NULL`;
   const params = [selectedPortId];
   let i = 2;
@@ -296,7 +331,7 @@ router.get('/', async (req, res) => {
       params.push(d.toISOString());
     }
   }
-  sql += ` ORDER BY sp.updated_at DESC NULLS LAST, sp.id DESC`;
+  sql += ` ORDER BY sp.created_at DESC NULLS LAST, sp.id DESC`;
   const result = await pool.query(sql, params);
   res.json(result.rows.map(toPlanListRow));
 });
@@ -307,8 +342,9 @@ router.post('/', requireAuth, async (req, res) => {
   }
   const selectedPortId = Number(req.selectedPortId);
   const b = req.body || {};
-  const vesselName = typeof b.vessel_name === 'string' ? b.vessel_name.trim() : '';
-  if (!vesselName) return res.status(400).json({ error: 'vessel_name is required' });
+  const vesselSnap = await resolveLinkedPlanVesselSnapshot(pool, b.master_vessel_id, b);
+  if (vesselSnap?.error) return res.status(400).json({ error: vesselSnap.error });
+  const vesselName = vesselSnap.vessel_name;
 
   let vesselCapacity = null;
   if (b.vessel_capacity != null && b.vessel_capacity !== '') {
@@ -317,19 +353,6 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'vessel_capacity must be a positive number' });
     }
   }
-
-  const requirePositive = (raw, field) => {
-    if (raw == null || raw === '') return { error: `${field} is required` };
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return { error: `${field} must be a positive number` };
-    return n;
-  };
-  const vesselLoaM = requirePositive(b.vessel_loa_m, 'vessel_loa_m');
-  if (vesselLoaM?.error) return res.status(400).json({ error: vesselLoaM.error });
-  const vesselGt = requirePositive(b.vessel_gross_tonnage, 'vessel_gross_tonnage');
-  if (vesselGt?.error) return res.status(400).json({ error: vesselGt.error });
-  const vesselDraft = requirePositive(b.vessel_draft, 'vessel_draft');
-  if (vesselDraft?.error) return res.status(400).json({ error: vesselDraft.error });
 
   let purposeId = null;
   if (b.purpose_id != null && b.purpose_id !== '') {
@@ -380,18 +403,40 @@ router.post('/', requireAuth, async (req, res) => {
     await client.query('BEGIN');
     const ins = await client.query(
       `INSERT INTO shipment_plans (
-         port_id, vessel_name, vessel_capacity, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
+         port_id, master_vessel_id, vessel_name, vessel_capacity, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
+         vessel_type, vessel_hull_type,
          jetty_id, eta, purpose_id, voyage_no, agent_id,
          requested_by, created_at, updated_at, updated_by
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW(), $13)
-       RETURNING id`,
-      [selectedPortId, vesselName, vesselCapacity, vesselLoaM, vesselGt, vesselDraft, jettyId, eta, purposeId, voyageNo, agentId, requestedBy, req.userId ?? null]
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW(), $16)
+       RETURNING id, port_id, plan_reference, approval_status`,
+      [
+        selectedPortId,
+        vesselSnap.master_vessel_id,
+        vesselName,
+        vesselCapacity,
+        vesselSnap.vessel_loa_m,
+        vesselSnap.vessel_gross_tonnage,
+        vesselSnap.vessel_draft,
+        vesselSnap.vessel_type,
+        vesselSnap.vessel_hull_type,
+        jettyId,
+        eta,
+        purposeId,
+        voyageNo,
+        agentId,
+        requestedBy,
+        req.userId ?? null,
+      ]
     );
     const planId = ins.rows[0].id;
     const ref = buildPlanReference(planId);
     await client.query(`UPDATE shipment_plans SET plan_reference = $1 WHERE id = $2`, [ref, planId]);
     await client.query('COMMIT');
     const row = await loadPlan(client, planId, selectedPortId);
+    if (!row) {
+      console.error('[shipment-plans] create: plan missing after commit', { planId, selectedPortId });
+      return res.status(500).json({ error: 'Plan created but failed to load' });
+    }
     writeActivityLog({
       pageKey: PAGE_KEY,
       action: 'add',
@@ -405,7 +450,7 @@ router.post('/', requireAuth, async (req, res) => {
       ],
       actorUserId: req.userId ?? null,
     }).catch(() => {});
-    res.status(201).json(toPlanListRow({ ...row, si_count: 0, jetty_name: row.jetty_name }));
+    res.status(201).json(toPlanListRow({ ...row, si_count: 0, jetty_name: row.jetty_name ?? null }));
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;
@@ -423,8 +468,8 @@ router.get('/:id', async (req, res) => {
   if (!plan) return res.status(404).json({ error: 'Shipment plan not found' });
 
   const sis = await pool.query(
-    `SELECT si.id, si.reference_number, spl.vessel_name, si.commodity, spp2.code AS purpose, si.status, spl.eta, si.eta_from, si.eta_to,
-            si.loading_port_id,
+    `SELECT si.id, si.reference_number, si.no_external_si, spl.vessel_name, si.commodity, spp2.code AS purpose, si.status, spl.eta, si.eta_from, si.eta_to,
+            si.loading_port_id, si.company_id, mc.name AS company_name, mc.short_name AS company_short_name,
             (
               SELECT COALESCE(
                 json_agg(
@@ -435,6 +480,7 @@ router.get('/:id', async (req, res) => {
                     'contract_no', b.contract_no,
                     'po_no', b.po_no,
                     'so_no', b.so_no,
+                    'sto_no', b.sto_no,
                     'remarks', b.remarks,
                     'shipper_id', b.shipper_id,
                     'shipper_name', sh.name
@@ -451,6 +497,7 @@ router.get('/:id', async (req, res) => {
      FROM shipping_instructions si
      JOIN shipment_plans spl ON spl.id = si.shipment_plan_id AND spl.deleted_at IS NULL
      LEFT JOIN si_purposes spp2 ON spp2.id = spl.purpose_id AND spp2.deleted_at IS NULL
+     LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
      WHERE si.shipment_plan_id = $1 AND si.deleted_at IS NULL
      ORDER BY si.id ASC`,
     [planId]
@@ -473,10 +520,19 @@ router.patch('/:id', requireAuth, async (req, res) => {
   const b = req.body || {};
 
   const cur = await pool.query(
-    `SELECT id, approval_status, vessel_name, jetty_id, eta FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+    `SELECT id, approval_status, vessel_name, jetty_id, eta, master_vessel_id
+     FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
     [planId, selectedPortId]
   );
   if (cur.rows.length === 0) return res.status(404).json({ error: 'Shipment plan not found' });
+  const linked = cur.rows[0].master_vessel_id != null;
+  const vesselWrite = decideVesselMasterWrite({ linked, body: b });
+  if (vesselWrite.error) return res.status(400).json({ error: vesselWrite.error });
+  let vesselSnap = null;
+  if (vesselWrite.mode === 'linked-repick' && vesselWrite.masterVesselId !== Number(cur.rows[0].master_vessel_id)) {
+    vesselSnap = await resolveLinkedPlanVesselSnapshot(pool, vesselWrite.masterVesselId, b);
+    if (vesselSnap?.error) return res.status(400).json({ error: vesselSnap.error });
+  }
   const st = cur.rows[0].approval_status;
   const isPreBerthShellEdit = st === 'Approved' || st === 'Submitted';
   if (isPreBerthShellEdit) {
@@ -488,9 +544,12 @@ router.patch('/:id', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Plan can only be edited in Draft or Rejected state' });
   }
 
-  const vesselName =
-    b.vessel_name != null && typeof b.vessel_name === 'string' ? b.vessel_name.trim() : null;
-  if (vesselName === '') return res.status(400).json({ error: 'vessel_name cannot be empty' });
+  const vesselName = linked
+    ? null
+    : b.vessel_name != null && typeof b.vessel_name === 'string'
+      ? b.vessel_name.trim()
+      : null;
+  if (!linked && vesselName === '') return res.status(400).json({ error: 'vessel_name cannot be empty' });
 
   let vesselCapacity = undefined;
   if ('vessel_capacity' in b) {
@@ -504,19 +563,8 @@ router.patch('/:id', requireAuth, async (req, res) => {
     }
   }
 
-  const patchPositive = (key) => {
-    if (!(key in b)) return undefined;
-    if (b[key] == null || b[key] === '') return { error: `${key} cannot be empty` };
-    const n = Number(b[key]);
-    if (!Number.isFinite(n) || n <= 0) return { error: `${key} must be a positive number` };
-    return n;
-  };
-  const vesselLoaM = patchPositive('vessel_loa_m');
-  if (vesselLoaM?.error) return res.status(400).json({ error: vesselLoaM.error });
-  const vesselGt = patchPositive('vessel_gross_tonnage');
-  if (vesselGt?.error) return res.status(400).json({ error: vesselGt.error });
-  const vesselDraft = patchPositive('vessel_draft');
-  if (vesselDraft?.error) return res.status(400).json({ error: vesselDraft.error });
+  const dims = planDimensionsFromBody(b, vesselSnap);
+  if (dims.error) return res.status(400).json({ error: dims.error });
 
   let jettyId = undefined;
   if ('jetty_id' in b) {
@@ -572,7 +620,16 @@ router.patch('/:id', requireAuth, async (req, res) => {
   const sets = [];
   const params = [];
   let i = 1;
-  if (vesselName != null) {
+  if (vesselSnap) {
+    sets.push(`master_vessel_id = $${i++}`);
+    params.push(vesselSnap.master_vessel_id);
+    sets.push(`vessel_name = $${i++}`);
+    params.push(vesselSnap.vessel_name);
+    sets.push(`vessel_type = $${i++}`);
+    params.push(vesselSnap.vessel_type);
+    sets.push(`vessel_hull_type = $${i++}`);
+    params.push(vesselSnap.vessel_hull_type);
+  } else if (vesselName != null) {
     sets.push(`vessel_name = $${i++}`);
     params.push(vesselName);
   }
@@ -580,17 +637,17 @@ router.patch('/:id', requireAuth, async (req, res) => {
     sets.push(`vessel_capacity = $${i++}`);
     params.push(vesselCapacity);
   }
-  if (vesselLoaM !== undefined) {
+  if (dims.vessel_loa_m !== undefined) {
     sets.push(`vessel_loa_m = $${i++}`);
-    params.push(vesselLoaM);
+    params.push(dims.vessel_loa_m);
   }
-  if (vesselGt !== undefined) {
+  if (dims.vessel_gross_tonnage !== undefined) {
     sets.push(`vessel_gross_tonnage = $${i++}`);
-    params.push(vesselGt);
+    params.push(dims.vessel_gross_tonnage);
   }
-  if (vesselDraft !== undefined) {
+  if (dims.vessel_draft !== undefined) {
     sets.push(`vessel_draft = $${i++}`);
-    params.push(vesselDraft);
+    params.push(dims.vessel_draft);
   }
   if (jettyId !== undefined) {
     sets.push(`jetty_id = $${i++}`);
@@ -669,12 +726,78 @@ router.patch('/:id/vessel-info', requireAuth, async (req, res) => {
   const b = req.body || {};
 
   const cur = await pool.query(
-    `SELECT id, plan_reference, vessel_name, vessel_capacity, vessel_loa_m, vessel_gross_tonnage, vessel_draft
+    `SELECT id, plan_reference, vessel_name, vessel_capacity, vessel_loa_m, vessel_gross_tonnage, vessel_draft, master_vessel_id
      FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
     [planId, selectedPortId]
   );
   if (cur.rows.length === 0) return res.status(404).json({ error: 'Shipment plan not found' });
   const beforeRow = cur.rows[0];
+  const linked = beforeRow.master_vessel_id != null;
+  const vesselWrite = decideVesselMasterWrite({ linked, body: b, requireMasterVesselId: linked });
+  if (vesselWrite.error) return res.status(400).json({ error: vesselWrite.error });
+  if (linked) {
+    const sameMaster = vesselWrite.masterVesselId === Number(beforeRow.master_vessel_id);
+    let vesselSnap = null;
+    if (!sameMaster) {
+      vesselSnap = await resolveLinkedPlanVesselSnapshot(pool, vesselWrite.masterVesselId, b);
+      if (vesselSnap?.error) return res.status(400).json({ error: vesselSnap.error });
+    }
+    const dims = vesselSnap || planDimensionsFromBody(b, null);
+    if (dims.error) return res.status(400).json({ error: dims.error });
+    const sets = [];
+    const params = [];
+    let i = 1;
+    if (vesselSnap) {
+      sets.push(`master_vessel_id = $${i++}`);
+      params.push(vesselSnap.master_vessel_id);
+      sets.push(`vessel_name = $${i++}`);
+      params.push(vesselSnap.vessel_name);
+      sets.push(`vessel_type = $${i++}`);
+      params.push(vesselSnap.vessel_type);
+      sets.push(`vessel_hull_type = $${i++}`);
+      params.push(vesselSnap.vessel_hull_type);
+    }
+    for (const key of ['vessel_loa_m', 'vessel_gross_tonnage', 'vessel_draft']) {
+      if (dims[key] !== undefined) {
+        sets.push(`${key} = $${i++}`);
+        params.push(dims[key]);
+      }
+    }
+    if (sets.length > 0) {
+      sets.push('updated_at = NOW()');
+      sets.push(`updated_by = $${i++}`);
+      params.push(req.userId ?? null);
+      params.push(planId, selectedPortId);
+      await pool.query(
+        `UPDATE shipment_plans SET ${sets.join(', ')}
+         WHERE id = $${i++} AND port_id = $${i++} AND deleted_at IS NULL`,
+        params
+      );
+    }
+    const plan = await loadPlan(pool, planId, selectedPortId);
+    const changes = [];
+    const add = (field, from, to) => {
+      if (String(from ?? '') === String(to ?? '')) return;
+      changes.push({ field, from, to });
+    };
+    add('Vessel', beforeRow.vessel_name, plan.vessel_name);
+    add('LOA (m)', beforeRow.vessel_loa_m, plan.vessel_loa_m);
+    add('GT', beforeRow.vessel_gross_tonnage, plan.vessel_gross_tonnage);
+    add('Draft', beforeRow.vessel_draft, plan.vessel_draft);
+    if (changes.length) {
+      writeActivityLog({
+        pageKey: PAGE_KEY,
+        action: 'update',
+        entityType: 'ShipmentPlan',
+        entityId: String(planId),
+        entityLabel: plan.plan_reference || `Plan #${planId}`,
+        summary: 'Updated vessel information',
+        changes,
+        actorUserId: req.userId ?? null,
+      }).catch(() => {});
+    }
+    return res.json(toPlanListRow({ ...plan, si_count: 0 }));
+  }
 
   const vesselName = typeof b.vessel_name === 'string' ? b.vessel_name.trim() : null;
   if ('vessel_name' in b && !vesselName) {
@@ -774,6 +897,33 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'At least one shipping instruction is required before submit' });
     }
+    const children = await client.query(
+      `SELECT id, reference_number, no_external_si
+       FROM shipping_instructions
+       WHERE shipment_plan_id = $1 AND deleted_at IS NULL
+       ORDER BY id
+       FOR UPDATE`,
+      [planId]
+    );
+    const assignedInternalNumbers = [];
+    for (const si of children.rows) {
+      if (si.no_external_si !== true) continue;
+      const ref = si.reference_number == null ? '' : String(si.reference_number).trim();
+      if (!ref) {
+        const number = await allocateInternalSiNumber(client, selectedPortId);
+        await client.query(
+          `UPDATE shipping_instructions SET reference_number = $1, updated_at = NOW() WHERE id = $2`,
+          [number, si.id]
+        );
+        assignedInternalNumbers.push({ id: si.id, number });
+        continue;
+      }
+      if (isInternalSiReference(ref)) continue;
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Shipping instruction ${si.id} is marked as having no external Shipping Instruction number but already has a different number. Clear it before submit.`,
+      });
+    }
     await client.query(
       `UPDATE shipment_plans SET
          approval_status = 'Submitted',
@@ -800,6 +950,14 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
         actionUrl: `${appBase}/shipment-plans/approval/${planId}`,
       },
     });
+    const submitChanges = [{ field: 'Approval status', from: row.approval_status, to: 'Submitted' }];
+    for (const assigned of assignedInternalNumbers) {
+      submitChanges.push({
+        field: 'Internal SI number',
+        from: null,
+        to: `${assigned.id}: ${assigned.number}`,
+      });
+    }
     writeActivityLog({
       pageKey: PAGE_KEY,
       action: 'update',
@@ -807,7 +965,7 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
       entityId: String(planId),
       entityLabel: row.plan_reference || `Plan #${planId}`,
       summary: 'Submitted shipment plan for approval',
-      changes: [{ field: 'Approval status', from: row.approval_status, to: 'Submitted' }],
+      changes: submitChanges,
       actorUserId: req.userId ?? null,
     }).catch(() => {});
     const plan = await loadPlan(pool, planId, selectedPortId);
@@ -1163,6 +1321,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
       [planId, req.userId ?? null]
     );
     await client.query('COMMIT');
+    triggerPartnerWebhooksDeferred({ shipmentPlanId: planId, eventTypes: ['status.changed'] });
     writeActivityLog({
       pageKey: PAGE_KEY,
       action: 'delete',

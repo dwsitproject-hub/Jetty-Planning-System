@@ -57,3 +57,13 @@ export function deleteTankGaugingSource(id) {
 export function testTankGaugingSource(id, body = {}) {
   return apiPost(`/tank-gauging/sources/${encodeURIComponent(String(id))}/test`, body)
 }
+
+/** Turn the per-tank manual override on or off. Body: { enabled, reason, expiresAt }. */
+export function setTankManualOverride(tankId, body) {
+  return apiPut(`/tank-gauging/tanks/${encodeURIComponent(String(tankId))}/manual-override`, body)
+}
+
+/** Who turned the override on/off, when and why. */
+export function fetchTankManualOverrideHistory(tankId) {
+  return apiGet(`/tank-gauging/tanks/${encodeURIComponent(String(tankId))}/manual-override/history`)
+}

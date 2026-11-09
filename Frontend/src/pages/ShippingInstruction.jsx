@@ -7,13 +7,15 @@ import {
   createShippingInstruction,
   updateShippingInstruction,
   deleteShippingInstruction,
-  fetchSiNpwpMaster,
 } from '../api/shippingInstructions'
 import { fetchSiLookups } from '../api/siLookups'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
+import MasterVesselSearchSelect from '../components/MasterVesselSearchSelect'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
+import { fieldsFromMasterVessel } from '../utils/masterVesselDisplay'
 import { SiRowActions, canViewAsDocument } from '../components/SiTableRowActions'
 import SiDetailModal from '../components/SiDetailModal'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
@@ -31,6 +33,8 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow, nextDocId } from '../utils/siPlanLinkedDraft'
+import { commodityPickerOptions } from '../utils/commodityShortTitle.js'
+import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import {
   applyCommodityDefaultMetric,
@@ -298,6 +302,7 @@ function nextSiId(list) {
 
 export default function ShippingInstruction() {
   const { t } = useTranslation('shippingInstruction')
+  const { t: tPlan } = useTranslation('shipmentPlan')
   const navigate = useNavigate()
   const { logActivity } = useActivityLog()
   const { canApprove, canDelete } = useRbac()
@@ -327,6 +332,8 @@ export default function ShippingInstruction() {
   const defaultFormFromLookups = (lu) => {
     const base = {
       vesselName: '',
+      masterVesselId: '',
+      vesselLinkStatus: 'legacy',
       referenceNumber: '',
       voyageNo: '',
       purposeId: '',
@@ -387,7 +394,6 @@ export default function ShippingInstruction() {
   const [siDetailId, setSiDetailId] = useState(null)
   const [breakdownBySi, setBreakdownBySi] = useState({})
   const [form, setForm] = useState(() => defaultFormFromLookups(null))
-  const [npwpMaster, setNpwpMaster] = useState(null)
 
   const selectedPurpose = useMemo(
     () => (lookups?.purposes || []).find((p) => String(p.id) === String(form.purposeId)) || null,
@@ -464,27 +470,6 @@ export default function ShippingInstruction() {
     }
   }, [expandedId, breakdownBySi])
 
-  useEffect(() => {
-    if (!isFormOpen) return
-    if (!isLoadingPurpose) {
-      setNpwpMaster(null)
-      return
-    }
-    let cancelled = false
-    fetchSiNpwpMaster()
-      .then((r) => {
-        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
-      })
-      .catch((e) => {
-        if (!cancelled) setNpwpMaster(null)
-        const msg = e?.message || 'Failed to load NPWP master'
-        setToast({ message: `Failed to load NPWP master: ${msg}`, variant: 'error' })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isFormOpen, isLoadingPurpose])
-
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!lookups) {
@@ -519,6 +504,8 @@ export default function ShippingInstruction() {
       qty: Number(row.qty) || 0,
       contractNo: row.contractNo?.trim() || null,
       poNo: row.poNo?.trim() || null,
+      soNo: row.soNo?.trim() || null,
+      stoNo: row.stoNo?.trim() || null,
       remarks: row.remarks?.trim() || null,
     }))
     for (let i = 0; i < breakdownPayload.length; i += 1) {
@@ -548,10 +535,22 @@ export default function ShippingInstruction() {
       setToast({ message: metricErr, variant: 'error' })
       return
     }
+    if (!editingId && !form.masterVesselId) {
+      setToast({ message: tPlan('formMasterVesselSelect'), variant: 'error' })
+      return
+    }
+    if (!form.vesselName.trim()) {
+      setToast({
+        message: editingId ? t('formVesselNameRequired') : tPlan('formMasterVesselIncomplete'),
+        variant: 'error',
+      })
+      return
+    }
     try {
       const etaIso = form.etaFrom ? new Date(`${form.etaFrom}T12:00:00`).toISOString() : null
       const payload = {
         vesselName: form.vesselName.trim(),
+        masterVesselId: editingId ? undefined : form.masterVesselId,
         purposeId: pid,
         tradeTermId: isUnloading ? num(form.tradeTermId) : null,
         preferredJettyId: num(form.preferredJettyId),
@@ -678,7 +677,6 @@ export default function ShippingInstruction() {
     setForm(defaultFormFromLookups(lookups))
     setEditingId(null)
     setEditingSnapshot(null)
-    setNpwpMaster(null)
     setIsFormOpen(true)
   }
 
@@ -694,16 +692,23 @@ export default function ShippingInstruction() {
           ? row.breakdown.map((b) => ({
               shipperId: b.shipperId != null ? String(b.shipperId) : '',
               commodityId: b.commodityId != null ? String(b.commodityId) : '',
+              commodityName: b.commodityName ?? '',
+              commodityShortName: b.commodityShortName ?? '',
+              materialCode: b.materialCode ?? '',
               metricId: b.metricId != null ? String(b.metricId) : '',
               qty: b.qty != null ? String(b.qty) : '',
               contractNo: b.contractNo ?? '',
               poNo: b.poNo ?? '',
+              soNo: b.soNo ?? '',
+              stoNo: b.stoNo ?? '',
               remarks: b.remarks ?? '',
             }))
           : [emptyBreakdownRow(lookups)]
 
       setForm({
         vesselName: row.vesselName ?? '',
+        masterVesselId: row.masterVesselId != null ? String(row.masterVesselId) : '',
+        vesselLinkStatus: row.vesselLinkStatus === 'linked' ? 'linked' : 'legacy',
         referenceNumber: row.referenceNumber ?? '',
         voyageNo: row.voyageNo ?? '',
         purposeId: row.purposeId != null ? String(row.purposeId) : '',
@@ -761,17 +766,7 @@ export default function ShippingInstruction() {
     setIsFormOpen(false)
     setEditingId(null)
     setEditingSnapshot(null)
-    setNpwpMaster(null)
   }
-
-  useEffect(() => {
-    if (!isFormOpen) return
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') handleCloseModal()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isFormOpen])
 
   const updatePanelFilter = (key, value) => setPanelFilters((f) => ({ ...f, [key]: value }))
   const resetPanelFilters = () => {
@@ -1085,7 +1080,7 @@ export default function ShippingInstruction() {
       )}
 
       {isFormOpen && (
-        <div className="modal-overlay" onClick={handleCloseModal} aria-hidden="true">
+        <StickyFormOverlay onClose={handleCloseModal}>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -1130,6 +1125,30 @@ export default function ShippingInstruction() {
                 <h3 className="shipping-instruction-form__section-title">{t('formVesselTripSection')}</h3>
                 <div className="shipping-instruction-form__grid shipping-instruction-form__grid--vessel-trip">
                   <div className="input-group shipping-instruction-form__vessel">
+                    {!editingId ? (
+                      <>
+                        <label htmlFor="si-master-vessel">{tPlan('formMasterVesselRequired')}</label>
+                        <MasterVesselSearchSelect
+                          id="si-master-vessel"
+                          value={form.masterVesselId}
+                          initialLabel={form.vesselName}
+                          disabled={!lookups}
+                          onChange={(id) => updateForm({ masterVesselId: id })}
+                          onVesselSelect={(vessel) => {
+                            const fields = fieldsFromMasterVessel(vessel)
+                            updateForm({
+                              masterVesselId: fields.masterVesselId,
+                              vesselName: fields.vesselName,
+                            })
+                          }}
+                        />
+                        <p className="text-steel" style={{ margin: '0.35rem 0' }}>{tPlan('formVesselNameFromMasterHint')}</p>
+                      </>
+                    ) : form.vesselLinkStatus !== 'linked' ? (
+                      <p className="text-steel" style={{ margin: '0 0 0.35rem' }}>{tPlan('vesselLinkLegacyNote')}</p>
+                    ) : (
+                      <p className="text-steel" style={{ margin: '0 0 0.35rem' }}>{tPlan('formVesselNameFromMasterHint')}</p>
+                    )}
                     <label htmlFor="vesselName">{t('formVesselNameRequired')}</label>
                     <input
                       id="vesselName"
@@ -1139,6 +1158,7 @@ export default function ShippingInstruction() {
                       required
                       placeholder="e.g. TB. ARIA CITRA IV / BG. MULIA VII"
                       disabled={!lookups}
+                      readOnly={!editingId || form.vesselLinkStatus === 'linked'}
                     />
                   </div>
                   <div className="input-group shipping-instruction-form__ref">
@@ -1262,12 +1282,6 @@ export default function ShippingInstruction() {
                       </select>
                     </div>
                   )}
-                  {isLoadingPurpose && (
-                    <div className="input-group">
-                      <label htmlFor="npwpMaster">NPWP</label>
-                      <input id="npwpMaster" value={npwpMaster || '—'} readOnly disabled={!lookups} />
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -1286,6 +1300,7 @@ export default function ShippingInstruction() {
                         <th>{t('formBreakdownUnitReq')}</th>
                         <th>{t('formBreakdownContractNo')}</th>
                         <th>{t('formBreakdownPoNo')}</th>
+                        <th>{t('formBreakdownStoNo')}</th>
                         <th>{t('formBreakdownRemarks')}</th>
                         <th></th>
                       </tr>
@@ -1307,18 +1322,14 @@ export default function ShippingInstruction() {
                             </select>
                           </td>
                           <td>
-                            <select
-                              value={row.commodityId}
-                              onChange={(e) => updateBreakdownCommodity(i, e.target.value)}
-                              required
-                              className="shipping-instruction-inline-input"
+                            <SearchableSingleSelect
+                              value={row.commodityId != null ? String(row.commodityId) : ''}
+                              onChange={(v) => updateBreakdownCommodity(i, v)}
+                              options={commodityPickerOptions(lookups?.commodities, row)}
+                              placeholder="—"
+                              searchPlaceholder="Search material code or name"
                               disabled={!lookups}
-                            >
-                              <option value="">—</option>
-                              {(lookups?.commodities || []).map((c) => (
-                                <option key={c.id} value={c.id}>{c.name}</option>
-                              ))}
-                            </select>
+                            />
                           </td>
                           <td>
                             <input
@@ -1358,6 +1369,14 @@ export default function ShippingInstruction() {
                             <input
                               value={row.poNo}
                               onChange={(e) => updateBreakdownRow(i, 'poNo', e.target.value)}
+                              maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
+                              className="shipping-instruction-inline-input"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={row.stoNo}
+                              onChange={(e) => updateBreakdownRow(i, 'stoNo', e.target.value)}
                               maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                               className="shipping-instruction-inline-input"
                             />
@@ -1530,7 +1549,7 @@ export default function ShippingInstruction() {
               </div>
             </form>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       <section className="card">
@@ -1688,6 +1707,7 @@ export default function ShippingInstruction() {
                                     <th>{t('breakdownUnit')}</th>
                                     <th>{t('breakdownContract')}</th>
                                     <th>{t('breakdownPo')}</th>
+                                    <th>{t('breakdownSto')}</th>
                                     <th>{t('breakdownRemarks')}</th>
                                   </tr>
                                 </thead>
@@ -1699,6 +1719,7 @@ export default function ShippingInstruction() {
                                       <td>{b.metricCode}</td>
                                       <td>{b.contractNo || '—'}</td>
                                       <td>{b.poNo || '—'}</td>
+                                      <td>{b.stoNo || '—'}</td>
                                       <td>{b.remarks || '—'}</td>
                                     </tr>
                                   ))}

@@ -3,6 +3,7 @@
  */
 
 import { loadBreakdownBySiIds } from './siBreakdownDisplay.js';
+import { loadSpecsByCommodityIds, specForCommodity } from './qc-spec-store.js';
 
 /**
  * @param {Array<object>} breakdownRows
@@ -99,7 +100,16 @@ export async function resolveShippingInstructionIdForOperation(db, operationId) 
 export async function getSiCommodityOptionsForOperation(db, operationId) {
   const siId = await resolveShippingInstructionIdForOperation(db, operationId);
   if (siId == null) return [];
-  return getSiCommodityOptions(db, siId);
+  const products = await getSiCommodityOptions(db, siId);
+  if (products.length === 0) return products;
+  const specs = await loadSpecsByCommodityIds(
+    db,
+    products.map((p) => p.commodityId)
+  );
+  return products.map((product) => ({
+    ...product,
+    spec: specForCommodity(specs, product.commodityId),
+  }));
 }
 
 /**

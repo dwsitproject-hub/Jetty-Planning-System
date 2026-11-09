@@ -25,6 +25,7 @@ import {
 import { validateBerthingTimeline } from '../lib/validate-schedule-timeline.js';
 import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { assertBerthPlanJettyAllowed } from '../lib/berth-plan-validation.js';
+import { loadDecisionsByOperation } from '../lib/sampling-commodity-qc.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
@@ -491,6 +492,7 @@ function formatListRow(r) {
     ),
     recordLastUpdatedByDisplayName:
       r.record_last_updated_by_display_name ?? r.recordLastUpdatedByDisplayName ?? null,
+    qcDecisions: Array.isArray(r.qc_decisions) ? r.qc_decisions : [],
   };
   if (row.operationId != null) {
     row.scheduleComparison = buildScheduleComparisonFromOverviewRow(row);
@@ -680,7 +682,7 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
               COALESCE(o.docking_start_time, sp.eta, o.eta, si.eta_from::timestamptz) ASC NULLS LAST, o.id ASC`;
 }
 
-async function buildAllocationOverviewPayload(selectedPortId) {
+export async function buildAllocationOverviewPayload(selectedPortId) {
   const jettiesRes = await pool.query(
     `SELECT j.id, j.name, j.status, j.capacity, p.name AS port_name
      FROM jetties j
@@ -991,6 +993,15 @@ async function buildAllocationOverviewPayload(selectedPortId) {
     Promise.resolve(incomingPlanOnly),
   ]);
   const enrichedIncoming = [...enrichedIncomingSi, ...enrichedIncomingPlan];
+  const decisionOps = [...enrichedOps, ...enrichedScheduleOps];
+  const decisions = await loadDecisionsByOperation(
+    pool,
+    decisionOps.map((r) => r.operation_id)
+  );
+  for (const row of decisionOps) {
+    const id = row.operation_id != null ? Number(row.operation_id) : null;
+    row.qc_decisions = id != null ? decisions.get(id) || [] : [];
+  }
   const mapRow = (r) => attachBerthingEligibility(formatListRow(r), berthingByPlan);
   const queue = [...enrichedOps, ...enrichedIncoming].map(mapRow);
   const scheduleQueue = [...enrichedScheduleOps, ...enrichedIncoming].map(mapRow);

@@ -10,7 +10,7 @@ function parseMs(val) {
 
 /**
  * @param {Date | null} castOff
- * @param {{ tbAt?: string | Date | null, latestExecutionAt?: string | Date | null, nowMs?: number }} opts
+ * @param {{ tbAt?: string | Date | null, latestExecutionAt?: string | Date | null, nowMs?: number, allowFuture?: boolean }} opts
  * @returns {string | null} Error message, or null if valid.
  */
 export function validateCastOffDepart(castOff, opts = {}) {
@@ -18,7 +18,7 @@ export function validateCastOffDepart(castOff, opts = {}) {
     return 'CAST Off time is required and must be valid.'
   }
   const nowMs = opts.nowMs ?? Date.now()
-  if (castOff.getTime() > nowMs + CAST_OFF_FUTURE_TOLERANCE_MS) {
+  if (!opts.allowFuture && castOff.getTime() > nowMs + CAST_OFF_FUTURE_TOLERANCE_MS) {
     return 'CAST Off cannot be in the future.'
   }
   const tbMs = parseMs(opts.tbAt)

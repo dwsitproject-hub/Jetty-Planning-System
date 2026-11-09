@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   buildLiveCargoProgressSnapshot,
+  carryManualOverride,
   findOpenCargoLoadLine,
   partitionDraftTanks,
   resolveCargoProgressTotalLoaded,
@@ -162,5 +163,14 @@ describe('cargoProgressResolvers', () => {
       atgTankIds: ['1'],
       manualTankIds: ['2'],
     })
+  })
+
+  it('carryManualOverride keeps a saved per-tank override when a line is re-saved', () => {
+    assert.deepEqual(carryManualOverride({}), {})
+    assert.deepEqual(carryManualOverride({ manualOverride: { tanks: [] } }), {})
+    assert.deepEqual(
+      carryManualOverride({ manualOverride: { note: 'dip', tanks: [{ tankId: 37, qty: 820 }] } }),
+      { manualOverrides: [{ tankId: '37', qty: 820 }], manualOverrideNote: 'dip' }
+    )
   })
 })

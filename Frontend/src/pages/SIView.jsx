@@ -1,6 +1,6 @@
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { fetchShippingInstruction, fetchSiNpwpMaster } from '../api/shippingInstructions'
+import { fetchShippingInstruction } from '../api/shippingInstructions'
 import SiDocumentView from '../components/SiDocumentView'
 import FlowPill from '../components/FlowPill'
 import { mapApiToSi, canViewAsDocument } from '../utils/siViewModel'
@@ -14,7 +14,6 @@ export default function SIView() {
   const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
   const siFromState = location.state?.si
   const [apiSi, setApiSi] = useState(null)
-  const [npwpMaster, setNpwpMaster] = useState(null)
   const numId = parseInt(siId, 10)
   useEffect(() => {
     if (Number.isNaN(numId)) {
@@ -34,22 +33,6 @@ export default function SIView() {
     }
   }, [siId, numId])
   const si = apiSi ?? (siFromState ? mapApiToSi(siFromState) : null)
-
-  useEffect(() => {
-    if (!si) return
-    const portId = si?.resolvedPortId
-    let cancelled = false
-    fetchSiNpwpMaster(portId)
-      .then((r) => {
-        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
-      })
-      .catch(() => {
-        if (!cancelled) setNpwpMaster(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [si?.resolvedPortId, si?.id])
 
   const canView = si && canViewAsDocument(si)
 
@@ -102,7 +85,7 @@ export default function SIView() {
         </header>
       )}
 
-      <SiDocumentView si={si} npwpMaster={npwpMaster} />
+      <SiDocumentView si={si} />
     </div>
   )
 }

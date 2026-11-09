@@ -36,8 +36,8 @@ describe('computeCommodityFlow', () => {
         commodity: 'CPO · CPKO',
         totalQtyDisplay: 'CPO 800 MT\nCPKO 200 MT',
         productRatesByKey: {
-          CPO: { rateMtH: 100, movedQty: 700, loggedHours: 7 },
-          CPKO: { rateMtH: 50, movedQty: 150, loggedHours: 3 },
+          CPO: { rateMtH: 100, movedQty: 700, loggedHours: 7, activeHours: 5 },
+          CPKO: { rateMtH: 50, movedQty: 150, loggedHours: 3, activeHours: 3 },
         },
       }),
       row({
@@ -48,7 +48,7 @@ describe('computeCommodityFlow', () => {
         qty: 600,
         commodity: 'CPO',
         voyageRateMtH: 1,
-        productRatesByKey: { CPO: { rateMtH: 80, movedQty: 500, loggedHours: 6.25 } },
+        productRatesByKey: { CPO: { rateMtH: 80, movedQty: 500, loggedHours: 6.25, activeHours: 5 } },
         tb: '2026-06-03T00:00:00Z',
       }),
     ])
@@ -58,19 +58,23 @@ describe('computeCommodityFlow', () => {
     assert.equal(flow.throughput, 1350)
     assert.equal(flow.berth, 10)
     assert.equal(round1(flow.wait), 6.7)
-    assert.equal(round1(flow.rate), 76.7)
+    // Total moved ÷ total hours, not a mean of per-shipment rates.
+    assert.equal(round1(flow.rate), round1(1350 / 16.25))
+    assert.equal(round1(flow.activeRate), round1(1350 / 13))
 
     assert.equal(flow.loading.shipments, 2)
     assert.equal(flow.loading.throughput, 850)
     assert.equal(flow.loading.berth, 10)
     assert.equal(flow.loading.wait, 4)
-    assert.equal(flow.loading.rate, 75)
+    assert.equal(flow.loading.rate, 85)
+    assert.equal(flow.loading.activeRate, 850 / 8)
 
     assert.equal(flow.unloading.shipments, 1)
     assert.equal(flow.unloading.throughput, 500)
     assert.equal(flow.unloading.berth, 20)
     assert.equal(flow.unloading.wait, 12)
     assert.equal(flow.unloading.rate, 80)
+    assert.equal(flow.unloading.activeRate, 100)
   })
 
   it('uses moved tons for throughput and keeps voyage clocks for berth and wait', () => {

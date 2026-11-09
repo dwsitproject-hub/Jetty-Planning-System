@@ -27,7 +27,7 @@ export function resolveCargoLineTankIdsForApi(line) {
   return []
 }
 
-function mapCargoLoadLineForApi(l, tz) {
+export function mapCargoLoadLineForApi(l, tz) {
   const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
   if (l.endAt != null && l.endAt !== '') {
     row.endAt = normalizeOpActivityTs(l.endAt, tz)
@@ -49,6 +49,11 @@ function mapCargoLoadLineForApi(l, tz) {
   if (commodityRaw != null && commodityRaw !== '') {
     const cid = parseInt(String(commodityRaw).trim(), 10)
     if (Number.isFinite(cid) && cid > 0) row.commodityId = cid
+  }
+  // Per-tank manual override: quantities typed by hand for tanks whose ATG is overridden.
+  if (Array.isArray(l.manualOverrides) && l.manualOverrides.length > 0) {
+    row.manualOverrides = l.manualOverrides.map((o) => ({ tankId: o.tankId, qty: Number(o.qty) }))
+    row.manualOverrideNote = String(l.manualOverrideNote ?? '')
   }
   return row
 }
@@ -280,6 +285,12 @@ export function upsertSubProcess(operationId, subProcessKey, body, opts = {}) {
     dobi: body.dobi,
     iodineValue: body.iodineValue,
     payload: body.payload,
+    // Per-commodity QC cards. Omitted for every other sub-process so a normal save does not clear them.
+    ...(Array.isArray(body.commodities) ? { commodities: body.commodities } : {}),
+    // Lets the API tag the activity log entry (e.g. 'qc' for the QC Sampling menu).
+    source: body.source,
+    // Optimistic lock: the API answers 409 when the row changed since this timestamp.
+    expectedUpdatedAt: body.expectedUpdatedAt,
   }
 
   // Post-Checking: always send all three keys (null or ISO). Omitting a key made JSON drop `endAt`,
@@ -319,10 +330,11 @@ export function deleteSubProcessDocument(operationId, subProcessKey, documentId,
   )
 }
 
-export async function uploadSubProcessDocuments(operationId, subProcessKey, phase, files) {
+export async function uploadSubProcessDocuments(operationId, subProcessKey, phase, files, commodityId = null) {
   const form = new FormData()
   const phaseValue = phase || 'Pre-Checking'
   form.append('phase', phaseValue)
+  if (commodityId != null && String(commodityId).trim() !== '') form.append('commodityId', String(commodityId))
   for (const f of Array.from(files || [])) {
     form.append('files', f)
   }

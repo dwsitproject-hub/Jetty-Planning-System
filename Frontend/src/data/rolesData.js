@@ -11,6 +11,7 @@ export const PAGE_OPTIONS = [
   { id: 'allocation-plan', label: 'Allocation & Berthing (by Shipment Plan)' },
   { id: 'at-berth', label: 'At-Berth Executions' },
   { id: 'operator-at-berth', label: 'Operator Mode' },
+  { id: 'quality-control', label: 'QC Sampling' },
   { id: 'loading', label: 'Loading / Unloading' },
   { id: 'quality', label: 'Quality' },
   { id: 'verification', label: 'Clearance' },
@@ -22,6 +23,7 @@ export const PAGE_OPTIONS = [
   { id: 'master-jetty-layout', label: 'Master – Jetty Layout' },
   { id: 'master-tanks', label: 'Master – Tanks' },
   { id: 'master-vessel', label: 'Master – Vessel' },
+  { id: 'master-company', label: 'Master – Company' },
   { id: 'tank-farm', label: 'Tank Farm' },
   { id: 'master-si-term', label: 'Master – Term' },
   { id: 'master-si-shipper', label: 'Master – Shipper' },
@@ -30,6 +32,7 @@ export const PAGE_OPTIONS = [
   { id: 'master-si-agent', label: 'Master – Agent' },
   { id: 'master-si-commodity', label: 'Master – Commodity' },
   { id: 'master-si-freight-terms', label: 'Master – Freight Terms' },
+  { id: 'master-qc-spec', label: 'Master – QC Specs' },
   { id: 'activity-log', label: 'Activity Log' },
   { id: 'admin', label: 'Admin' },
 ]

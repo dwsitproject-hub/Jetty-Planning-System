@@ -9,7 +9,9 @@ import {
   normalizeHubPurpose,
 } from '../utils/loadingHubProcessStagesFromApi'
 import { getScheduleEntryTimeZone } from '../utils/scheduleDateTime.js'
+import { isInternalSiReference } from '../utils/internalSiReference.js'
 import OperationActivityTimeline from './OperationActivityTimeline'
+import SiPartnerDocsSection from './SiPartnerDocsSection'
 import '../styles/modal.css'
 import '../styles/si-detail-modal.css'
 
@@ -23,6 +25,7 @@ function normalizeSiDetail(row) {
   if (!row) return null
   return {
     siNo: row.referenceNumber || (row.id != null ? `SI-${row.id}` : '—'),
+    internalReference: isInternalSiReference(row.referenceNumber),
     status: row.status || '—',
     source: row.source || ((row.purpose || '').toLowerCase() === 'unloading' ? 'External' : 'Internal'),
     vessel: row.vesselName || '—',
@@ -53,6 +56,7 @@ function normalizeSiDetail(row) {
     consignee: row.consigneeText || '—',
     notifyParty: row.notifyPartyText || '—',
     blIndicated: row.blIndicated || '—',
+    partnerName: row.partnerName ?? null,
     partnerSiDocumentUrl: row.partnerSiDocumentUrl ?? null,
     partnerContractDocumentUrl: row.partnerContractDocumentUrl ?? null,
     partnerBlDocumentUrl: row.partnerBlDocumentUrl ?? null,
@@ -244,8 +248,13 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
           <p style={{ color: '#c00' }}>{error}</p>
         ) : detail ? (
           <div className="si-detail-modal__content">
+            <SiPartnerDocsSection si={detail} />
             <dl className="si-detail-modal__grid">
-              <dt>{t('dtSiNo')}</dt><dd>{emptyToDash(detail.siNo)}</dd>
+              <dt>{t('dtSiNo')}</dt>
+              <dd>
+                {emptyToDash(detail.siNo)}
+                {detail.internalReference ? ` (${t('formInternalSiMark')})` : ''}
+              </dd>
               <dt>{t('dtStatus')}</dt><dd>{emptyToDash(detail.status)}</dd>
               <dt>{t('dtSource')}</dt><dd>{emptyToDash(detail.source)}</dd>
               <dt>{t('dtVessel')}</dt><dd>{emptyToDash(detail.vessel)}</dd>
@@ -274,36 +283,6 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
               <dt>{t('dtConsignee')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.consignee)}</dd>
               <dt>{t('dtNotifyParty')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.notifyParty)}</dd>
               <dt>{t('dtBlIndicated')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.blIndicated)}</dd>
-              <dt>{t('dtPartnerSiDocument')}</dt>
-              <dd>
-                {detail.partnerSiDocumentUrl ? (
-                  <a href={detail.partnerSiDocumentUrl} target="_blank" rel="noopener noreferrer">
-                    {t('partnerDocumentLinkOpen')}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </dd>
-              <dt>{t('dtPartnerContractDocument')}</dt>
-              <dd>
-                {detail.partnerContractDocumentUrl ? (
-                  <a href={detail.partnerContractDocumentUrl} target="_blank" rel="noopener noreferrer">
-                    {t('partnerDocumentLinkOpen')}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </dd>
-              <dt>{t('dtPartnerBlDocument')}</dt>
-              <dd>
-                {detail.partnerBlDocumentUrl ? (
-                  <a href={detail.partnerBlDocumentUrl} target="_blank" rel="noopener noreferrer">
-                    {t('partnerDocumentLinkOpen')}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </dd>
               <dt>{t('dtShipper')}</dt><dd>{emptyToDash(detail.shipper)}</dd>
               <dt>{t('dtLoadingPort')}</dt><dd>{emptyToDash(detail.loadingPort)}</dd>
               <dt>{t('dtSurveyor')}</dt><dd>{emptyToDash(detail.surveyor)}</dd>
@@ -418,6 +397,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
                       <th>{t('breakdownContract')}</th>
                       <th>{t('breakdownPo')}</th>
                       <th>{t('breakdownSo')}</th>
+                      <th>{t('breakdownSto')}</th>
                       <th>{t('breakdownRemarks')}</th>
                     </tr>
                   </thead>
@@ -430,6 +410,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
                         <td>{emptyToDash(item.contractNo)}</td>
                         <td>{emptyToDash(item.poNo)}</td>
                         <td>{emptyToDash(item.soNo)}</td>
+                        <td>{emptyToDash(item.stoNo)}</td>
                         <td>{emptyToDash(item.remarks)}</td>
                       </tr>
                     ))}

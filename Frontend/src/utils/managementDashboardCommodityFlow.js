@@ -3,10 +3,11 @@
  * Input rows are deduped sailed calls. Each product on a call is one shipment.
  * Shared berth and wait are repeated once per commodity.
  * Throughput sums logged moved tons per commodity, not the shipment-plan quantity.
- * Flow rate uses the product rate.
+ * Achieved rate = total moved ÷ total operational hours (first cargo start → last end).
+ * Active flow rate = total moved ÷ hours a cargo segment was actually running.
  */
 import { mean, median } from './managementDashboardFlow.js'
-import { expandVoyageToProductSlices, productSliceFlowRate } from './managementDashboardProduct.js'
+import { expandVoyageToProductSlices, weightedSliceRate } from './managementDashboardProduct.js'
 
 function isCargoPurpose(purpose) {
   return purpose === 'Loading' || purpose === 'Unloading'
@@ -24,7 +25,8 @@ function metricsFor(slices) {
     throughput: slices.reduce((s, r) => s + (sliceMovedQty(r) || 0), 0),
     berth: median(slices.map((r) => r.berth)),
     wait: mean(slices.map((r) => r.wait)),
-    rate: mean(slices.map(productSliceFlowRate)),
+    rate: weightedSliceRate(slices, 'productLoggedHours'),
+    activeRate: weightedSliceRate(slices, 'productActiveHours'),
   }
 }
 

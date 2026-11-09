@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, Fragment } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -9,35 +9,28 @@ import {
   createPartnerWebhook,
   patchPartnerWebhook,
   deactivatePartnerWebhook,
-  fetchWebhookDeliveries,
-  retryWebhookDelivery,
 } from '../api/integrationAdmin'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/admin.css'
 import '../styles/partner-integrations.css'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
+import PartnerActivityCard, { TAB_WEBHOOKS } from '../components/partner-integrations/PartnerActivityCard.jsx'
+import PartnerHealthStrip from '../components/partner-integrations/PartnerHealthStrip.jsx'
+import usePartnerSummary from '../components/partner-integrations/usePartnerSummary.js'
+import { DEFAULT_WINDOW_HOURS, formatWhen } from '../components/partner-integrations/partnerActivityFormat.js'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 
 function maskKey(prefix) {
   if (!prefix) return '—'
   return `${prefix}…`
 }
 
-function formatWhen(value) {
-  if (!value) return '—'
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
-}
-
 function formatEvents(events) {
   if (!Array.isArray(events) || events.length === 0) return '—'
   if (events.includes('*')) return 'All events'
   return events.join(', ')
-}
-
-function deliveryStatusBadgeClass(status) {
-  if (status === 'sent') return 'admin-status-badge admin-status-badge--active'
-  if (status === 'failed') return 'admin-status-badge admin-status-badge--error'
-  return 'admin-status-badge admin-status-badge--warning'
 }
 
 const ALL_EVENTS = ['status.changed', 'schedule.updated']
@@ -69,12 +62,9 @@ export default function AdminPartnerApi() {
   const [createdWebhookSecret, setCreatedWebhookSecret] = useState(null)
   const [secretCopied, setSecretCopied] = useState(false)
 
-  const [deliveriesOpen, setDeliveriesOpen] = useState(false)
-  const [deliveriesEndpoint, setDeliveriesEndpoint] = useState(null)
-  const [deliveries, setDeliveries] = useState([])
-  const [deliveriesTotal, setDeliveriesTotal] = useState(0)
-  const [deliveriesLoading, setDeliveriesLoading] = useState(false)
-  const [expandedDeliveryId, setExpandedDeliveryId] = useState(null)
+  const [activityFocus, setActivityFocus] = useState(null)
+  const activityRef = useRef(null)
+  const { byKeyId: summaryByKeyId, loading: summaryLoading, error: summaryErr, reload: reloadSummary } = usePartnerSummary()
 
   const selectedKey = keys.find((k) => k.id === selectedKeyId) ?? null
 
@@ -288,42 +278,45 @@ export default function AdminPartnerApi() {
     [selectedKeyId, loadWebhooks, t]
   )
 
-  const openDeliveries = useCallback(
-    async (ep) => {
-      if (selectedKeyId == null) return
-      setDeliveriesEndpoint(ep)
-      setDeliveriesOpen(true)
-      setDeliveriesLoading(true)
-      setExpandedDeliveryId(null)
-      try {
-        const data = await fetchWebhookDeliveries(selectedKeyId, ep.id, { limit: 50 })
-        setDeliveries(Array.isArray(data?.deliveries) ? data.deliveries : [])
-        setDeliveriesTotal(data?.total ?? 0)
-      } catch (e) {
-        setDeliveries([])
-        setDeliveriesTotal(0)
-        setToast({ kind: 'error', text: e?.message || 'Failed to load deliveries' })
-      } finally {
-        setDeliveriesLoading(false)
-      }
-    },
-    [selectedKeyId]
+  const openActivity = useCallback((ep) => {
+    setActivityFocus({ keyId: selectedKeyId, tab: TAB_WEBHOOKS, endpointId: ep.id })
+    activityRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [selectedKeyId])
+
+  const webhookColumns = useMemo(
+    () => [
+      {
+        key: 'url',
+        label: t('adminPartnerApiWebhookUrl'),
+        getSortValue: (ep) => (ep.url || '').toLowerCase(),
+        getFilterValue: (ep) => ep.url || '',
+      },
+      {
+        key: 'events',
+        label: t('adminPartnerApiWebhookEvents'),
+        getSortValue: (ep) => formatEvents(ep.events).toLowerCase(),
+        getFilterValue: (ep) => formatEvents(ep.events),
+      },
+      {
+        key: 'active',
+        label: t('adminPartnerApiWebhookActive'),
+        filterType: 'select',
+        selectOptions: [t('adminPartnerApiStatusActive'), t('adminPartnerApiStatusInactive')],
+        getSortValue: (ep) => (ep.active ? 1 : 0),
+        getFilterValue: (ep) =>
+          ep.active ? t('adminPartnerApiStatusActive') : t('adminPartnerApiStatusInactive'),
+      },
+    ],
+    [t]
   )
 
-  const handleRetryDelivery = useCallback(
-    async (deliveryId) => {
-      if (selectedKeyId == null || !deliveriesEndpoint) return
-      try {
-        await retryWebhookDelivery(selectedKeyId, deliveriesEndpoint.id, deliveryId)
-        const data = await fetchWebhookDeliveries(selectedKeyId, deliveriesEndpoint.id, { limit: 50 })
-        setDeliveries(Array.isArray(data?.deliveries) ? data.deliveries : [])
-        setToast({ kind: 'success', text: t('adminPartnerApiDeliveryRetryToast') })
-      } catch (e) {
-        setToast({ kind: 'error', text: e?.message || 'Retry failed' })
-      }
-    },
-    [selectedKeyId, deliveriesEndpoint, t]
-  )
+  const {
+    displayRows: displayWebhooks,
+    filters: webhookFilters,
+    updateFilter: updateWebhookFilter,
+    sortState: webhookSort,
+    handleSort: handleWebhookSort,
+  } = useSortableFilterableRows(webhooks, webhookColumns, { key: 'url', dir: 'asc' })
 
   return (
     <div className="allocation-page partner-integrations-page">
@@ -374,6 +367,11 @@ export default function AdminPartnerApi() {
                         {t('adminPartnerApiStatusRevoked')}
                       </span>
                     )}
+                    {(summaryByKeyId.get(k.id)?.webhooksFailed ?? 0) > 0 && (
+                      <span className="admin-status-badge admin-status-badge--error partner-integrations-nav__badge">
+                        {t('partnerActFailedBadge', { count: summaryByKeyId.get(k.id).webhooksFailed })}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -386,6 +384,15 @@ export default function AdminPartnerApi() {
             <p className="partner-integrations-content__placeholder">{t('adminPartnerApiSelectPartner')}</p>
           ) : (
             <>
+              <PartnerHealthStrip
+                summary={summaryByKeyId.get(selectedKey.id)}
+                loading={summaryLoading}
+                error={summaryErr}
+                hours={DEFAULT_WINDOW_HOURS}
+                keyActive={selectedKey.active}
+                onRefresh={reloadSummary}
+              />
+
               <section className="card">
                 <h2 className="card__title">{t('adminPartnerApiCredentials')}</h2>
                 <dl className="partner-integrations-kv">
@@ -430,17 +437,20 @@ export default function AdminPartnerApi() {
                   <p className="partner-integrations-empty">{t('adminPartnerApiNoWebhooks')}</p>
                 ) : (
                   <div className="table-wrap">
-                    <table className="data-table partner-webhook-table">
+                    <table className="data-table allocation-table partner-webhook-table">
                       <thead>
-                        <tr>
-                          <th>{t('adminPartnerApiWebhookUrl')}</th>
-                          <th>{t('adminPartnerApiWebhookEvents')}</th>
-                          <th>{t('adminPartnerApiWebhookActive')}</th>
-                          <th className="partner-webhook-table__actions-th">{t('adminPartnerApiWebhookActions')}</th>
-                        </tr>
+                        <SortableFilterableTableHead
+                          columns={webhookColumns}
+                          sortState={webhookSort}
+                          onSort={handleWebhookSort}
+                          filters={webhookFilters}
+                          onFilterChange={updateWebhookFilter}
+                          trailingBlankCols={1}
+                          trailingBlankLabel={t('adminPartnerApiWebhookActions')}
+                        />
                       </thead>
                       <tbody>
-                        {webhooks.map((ep) => (
+                        {displayWebhooks.map((ep) => (
                           <tr key={ep.id}>
                             <td className="partner-webhook-table__url">{ep.url}</td>
                             <td className="text-steel">{formatEvents(ep.events)}</td>
@@ -450,7 +460,7 @@ export default function AdminPartnerApi() {
                               </span>
                             </td>
                             <td className="partner-webhook-table__actions">
-                              <button type="button" className="partner-link-action" onClick={() => openDeliveries(ep)}>
+                              <button type="button" className="partner-link-action" onClick={() => openActivity(ep)}>
                                 {t('adminPartnerApiDeliveries')}
                               </button>
                               {selectedKey.active && (
@@ -472,16 +482,33 @@ export default function AdminPartnerApi() {
                         ))}
                       </tbody>
                     </table>
+                    {displayWebhooks.length === 0 && (
+                      <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                        {t('tableNoFilterMatch')}
+                      </p>
+                    )}
                   </div>
                 )}
               </section>
+
+              <PartnerActivityCard
+                key={selectedKey.id}
+                ref={activityRef}
+                keyId={selectedKey.id}
+                endpoints={webhooks}
+                hasActiveWebhook={webhooks.some((ep) => ep.active)}
+                focus={activityFocus?.keyId === selectedKey.id ? activityFocus : null}
+                onNotify={setToast}
+                onChanged={reloadSummary}
+                onAddWebhook={selectedKey.active ? openAddWebhook : undefined}
+              />
             </>
           )}
         </div>
       </div>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal} aria-hidden="true">
+        <StickyFormOverlay onClose={closeModal}>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="partner-modal-title" aria-modal="true">
             {createdKey ? (
               <>
@@ -537,11 +564,11 @@ export default function AdminPartnerApi() {
               </>
             )}
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       {webhookModalOpen && (
-        <div className="modal-overlay" onClick={closeWebhookModal} aria-hidden="true">
+        <StickyFormOverlay onClose={closeWebhookModal}>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             {createdWebhookSecret ? (
               <>
@@ -610,84 +637,7 @@ export default function AdminPartnerApi() {
               </>
             )}
           </div>
-        </div>
-      )}
-
-      {deliveriesOpen && deliveriesEndpoint && (
-        <div className="modal-overlay" onClick={() => setDeliveriesOpen(false)} aria-hidden="true">
-          <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <h2 className="modal__title">{t('adminPartnerApiDeliveriesTitle')}</h2>
-            <p className="text-steel" style={{ wordBreak: 'break-all', marginTop: -8 }}>{deliveriesEndpoint.url}</p>
-            {deliveriesLoading ? (
-              <p className="text-steel">{t('adminPartnerApiLoading')}</p>
-            ) : (
-              <>
-                <p className="partner-deliveries-summary">{t('adminPartnerApiDeliveriesCount', { count: deliveriesTotal })}</p>
-                {deliveries.length === 0 ? (
-                  <p className="partner-integrations-empty">{t('adminPartnerApiNoDeliveries')}</p>
-                ) : (
-                  <div className="table-wrap">
-                    <table className="data-table partner-deliveries-table">
-                      <thead>
-                        <tr>
-                          <th>{t('adminPartnerApiDeliveryId')}</th>
-                          <th>{t('adminPartnerApiDeliveryEvent')}</th>
-                          <th>{t('adminPartnerApiDeliveryRef')}</th>
-                          <th>{t('adminPartnerApiColStatus')}</th>
-                          <th>{t('adminPartnerApiDeliveryWhen')}</th>
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {deliveries.map((d) => (
-                          <Fragment key={d.delivery_id}>
-                            <tr>
-                              <td><span className="partner-deliveries-id">{d.delivery_id}</span></td>
-                              <td>{d.event_type}</td>
-                              <td>{d.external_reference}</td>
-                              <td>
-                                <span className={deliveryStatusBadgeClass(d.status)}>{d.status}</span>
-                                {d.last_error && <div className="partner-deliveries-error">{d.last_error}</div>}
-                              </td>
-                              <td>{formatWhen(d.sent_at || d.created_at)}</td>
-                              <td className="partner-webhook-table__actions">
-                                <button
-                                  type="button"
-                                  className="partner-link-action partner-link-action--muted"
-                                  onClick={() => setExpandedDeliveryId((x) => (x === d.delivery_id ? null : d.delivery_id))}
-                                >
-                                  {expandedDeliveryId === d.delivery_id ? t('adminPartnerApiHidePayload') : t('adminPartnerApiShowPayload')}
-                                </button>
-                                {d.status === 'failed' && (
-                                  <>
-                                    <span className="partner-webhook-table__sep">·</span>
-                                    <button type="button" className="partner-link-action" onClick={() => handleRetryDelivery(d.delivery_id)}>
-                                      {t('adminPartnerApiRetry')}
-                                    </button>
-                                  </>
-                                )}
-                              </td>
-                            </tr>
-                            {expandedDeliveryId === d.delivery_id && (
-                              <tr>
-                                <td colSpan={6}>
-                                  <pre className="partner-deliveries-payload">{JSON.stringify(d.payload, null, 2)}</pre>
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
-            )}
-            <div className="modal__footer">
-              <button type="button" className="btn btn--primary" onClick={() => setDeliveriesOpen(false)}>{t('adminPartnerApiDone')}</button>
-            </div>
-          </div>
-        </div>
+        </StickyFormOverlay>
       )}
     </div>
   )

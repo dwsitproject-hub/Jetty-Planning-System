@@ -170,10 +170,22 @@ export default function HourlyCargoProgressTable({
                 {visibleRows.map((row) => (
                   <tr
                     key={row.rowKey}
-                    className={`hourly-cargo-progress__row hourly-cargo-progress__row--${row.movementStatus || 'active'}`}
+                    className={`hourly-cargo-progress__row hourly-cargo-progress__row--${row.movementStatus || 'active'}${row.tankOverride ? ' hourly-cargo-progress__row--override' : ''}`}
                   >
                     <td>{formatHourlyRangeDisplay(row.hourStart, row.hourEnd)}</td>
-                    {showTankColumn ? <td>{row.tankCode}</td> : null}
+                    {showTankColumn ? (
+                      <td>
+                        {row.tankCode}
+                        {row.tankOverride ? (
+                          <span
+                            className="hourly-cargo-progress__override-tag"
+                            title={t('cargoHourlyOverrideTip', { note: row.tankOverrideNote || '—' })}
+                          >
+                            {t('cargoHourlyOverrideTag')}
+                          </span>
+                        ) : null}
+                      </td>
+                    ) : null}
                     <td>{formatDisplayCargoQty(row.tankDisplayQtyMoved, unit)}</td>
                     <td>{formatRate(row.rateTph, unit)}</td>
                     <td>{movementBadge(row.movementStatus, t)}</td>

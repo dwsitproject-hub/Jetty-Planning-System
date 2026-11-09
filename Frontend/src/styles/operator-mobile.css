@@ -937,6 +937,25 @@
   padding: var(--spacing-4) var(--spacing-4) var(--spacing-2);
 }
 
+.operator-sheet__title-row,
+.operator-modal__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.operator-sheet__title-row h2,
+.operator-modal__title-row h2 {
+  margin: 0;
+}
+
+.operator-sheet__title-row .modal__close,
+.operator-modal__title-row .modal__close {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
 .operator-sheet__header h2 {
   margin: 0;
   font-family: var(--font-heading);

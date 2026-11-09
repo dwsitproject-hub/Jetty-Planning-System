@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  activeCargoHours,
   buildCargoRateResult,
   computeCargoRateFromContext,
   lineMatchesProductKey,
@@ -54,6 +55,14 @@ describe('lineMatchesProductKey', () => {
       lineMatchesProductKey({ commodityId: 1, commodityShortName: 'CPO' }, 'CPKO'),
       false
     );
+  });
+
+  it('matches the commodity group instead of the detailed short name', () => {
+    const low = { commodityId: 1, commodityShortName: 'CPO-LOW', commodityGroup: 'CPO' };
+    const high = { commodityId: 2, commodityShortName: 'CPO-HIGH', commodityGroup: 'cpo' };
+    assert.equal(lineMatchesProductKey(low, 'CPO'), true);
+    assert.equal(lineMatchesProductKey(high, 'CPO'), true);
+    assert.equal(lineMatchesProductKey(low, 'CPO-LOW'), false);
   });
 });
 
@@ -202,6 +211,44 @@ describe('computeCargoRateFromContext', () => {
     assert.notEqual(r.rateMtH, null);
   });
 
+  it('rolls same-group grades together and keeps untagged lines on that single group', () => {
+    const ctx = {
+      siProductKeys: ['CPO'],
+      lines: [
+        {
+          id: 1,
+          qty: 100,
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T10:00:00+07:00',
+          tankIds: [1],
+          commodityId: 1,
+          commodityShortName: 'CPO-LOW',
+          commodityGroup: 'CPO',
+        },
+        {
+          id: 2,
+          qty: 200,
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T11:00:00+07:00',
+          tankIds: [2],
+          commodityId: 2,
+          commodityShortName: 'CPO-HIGH',
+          commodityGroup: 'CPO',
+        },
+        {
+          id: 3,
+          qty: 50,
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T09:00:00+07:00',
+          tankIds: [3],
+          commodityId: null,
+        },
+      ],
+    };
+    const lines = linesForProductRate(ctx, 'CPO');
+    assert.deepEqual(lines.map((l) => l.id), [1, 2, 3]);
+  });
+
   it('untagged line counts for single-product SI only', async () => {
     const db = mockDbForCargoSummary({});
     const ctx = {
@@ -243,5 +290,36 @@ describe('computeCargoRateFromContext', () => {
       ],
     };
     assert.equal(linesForProductRate(ctx, 'CPKO').length, 0);
+  });
+});
+
+describe('activeCargoHours', () => {
+  it('excludes pauses between segments and counts overlapping tanks once', () => {
+    const lines = [
+      { startedAt: '2026-08-04T08:00:00Z', endedAt: '2026-08-04T10:00:00Z' },
+      { startedAt: '2026-08-04T09:00:00Z', endedAt: '2026-08-04T11:00:00Z' },
+      { startedAt: '2026-08-04T14:00:00Z', endedAt: '2026-08-04T16:00:00Z' },
+    ];
+    assert.equal(activeCargoHours(lines), 5);
+  });
+
+  it('closes an open segment at the given end time', () => {
+    const lines = [{ startedAt: '2026-08-04T08:00:00Z', endedAt: null }];
+    assert.equal(activeCargoHours(lines, Date.parse('2026-08-04T11:00:00Z')), 3);
+  });
+});
+
+describe('buildCargoRateResult achieved vs active', () => {
+  it('returns operational-window rate and active-segment rate', () => {
+    const lines = [
+      { startedAt: '2026-08-04T08:00:00Z', endedAt: '2026-08-04T10:00:00Z' },
+      { startedAt: '2026-08-04T14:00:00Z', endedAt: '2026-08-04T16:00:00Z' },
+    ];
+    const summary = { movedQty: 800, source: 'atg', isLive: false, hasActiveCargo: false };
+    const r = buildCargoRateResult(summary, lines);
+    assert.equal(r.loggedHours, 8);
+    assert.equal(r.rateMtH, 100);
+    assert.equal(r.activeHours, 4);
+    assert.equal(r.activeRateMtH, 200);
   });
 });

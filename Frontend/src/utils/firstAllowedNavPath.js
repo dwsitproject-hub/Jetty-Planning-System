@@ -7,6 +7,7 @@ export const APP_NAV_ROUTES = [
   { path: '/allocation-plans', pageKey: 'allocation-plan' },
   { path: '/at-berth', pageKey: 'at-berth' },
   { path: '/operator/at-berth', pageKey: 'operator-at-berth' },
+  { path: '/qc/sampling', pageKey: 'quality-control' },
   { path: '/verification', pageKey: 'verification' },
   { path: '/demurrage-risk-calculator', pageKey: 'demurrage-risk-calculator' },
   { path: '/reporting', pageKey: 'reporting' },
@@ -26,6 +27,7 @@ export function pathToPageKey(pathname) {
   if (pathname.startsWith('/master/jetty-layout')) return 'master-jetty-layout'
   if (pathname.startsWith('/master/tanks')) return 'master-tanks'
   if (pathname.startsWith('/master/vessel')) return 'master-vessel'
+  if (pathname.startsWith('/master/company')) return 'master-company'
   if (pathname.startsWith('/tank-farm')) return 'tank-farm'
   if (pathname.startsWith('/master/jetty')) return 'master-jetty'
   if (pathname.startsWith('/master/si-term')) return 'master-si-term'
@@ -35,6 +37,7 @@ export function pathToPageKey(pathname) {
   if (pathname.startsWith('/master/si-agent')) return 'master-si-agent'
   if (pathname.startsWith('/master/si-commodity')) return 'master-si-commodity'
   if (pathname.startsWith('/master/freight-terms')) return 'master-si-freight-terms'
+  if (pathname.startsWith('/master/qc-specs')) return 'master-qc-spec'
   if (pathname.startsWith('/master')) return 'master'
   if (pathname.startsWith('/shipping-instruction')) return 'shipment-plan'
   if (pathname.startsWith('/shipment-plans')) return 'shipment-plan'
@@ -42,6 +45,7 @@ export function pathToPageKey(pathname) {
   if (pathname.startsWith('/allocation') || pathname.startsWith('/berthing')) return 'allocation-plan'
   if (pathname.startsWith('/at-berth')) return 'at-berth'
   if (pathname.startsWith('/operator')) return 'operator-at-berth'
+  if (pathname === '/qc' || pathname.startsWith('/qc/')) return 'quality-control'
   if (pathname.startsWith('/loading/operation')) return 'loading'
   if (pathname.startsWith('/loading') || pathname.startsWith('/unloading')) return 'loading'
   if (pathname.startsWith('/quality')) return 'quality'

@@ -149,12 +149,124 @@ export async function updateNamedMaster(db, table, id, { name, longName }) {
   return { row: toNamedResponse(r.rows[0]) };
 }
 
-/** Maps internal plan/operation state to partner Pending/Approved/Rejected/Allocated/Sailed. */
+/** Cargo Operations operation window on latest op lateral `o` (KLIP Hose On / Hose Off). */
+export const PARTNER_CARGO_OPS_WINDOW_SUBSELECT = `
+         (SELECT MIN(oa.start_at)
+          FROM operation_operational_activities oa
+          WHERE oa.operation_id = o.op_id
+            AND oa.deleted_at IS NULL
+            AND oa.entry_type = 'activity'
+            AND oa.milestone_key = 'cargo_operations'
+            AND oa.start_at IS NOT NULL) AS op_cargo_ops_window_start_at,
+         (SELECT MAX(oa.end_at)
+          FROM operation_operational_activities oa
+          WHERE oa.operation_id = o.op_id
+            AND oa.deleted_at IS NULL
+            AND oa.entry_type = 'activity'
+            AND oa.milestone_key = 'cargo_operations'
+            AND oa.end_at IS NOT NULL) AS op_cargo_ops_window_end_at`;
+
+/** Sub-process keys that finish cargo work (same set as managementDashboardCargoDone.js). */
+const PARTNER_FINAL_CHECK_KEYS = `'final_inspection', 'final_tank_inspection', 'final_hold_inspection', 'final_sounding'`;
+
+/**
+ * Cargo Done instant on latest op lateral `o`: latest end among cargo operations and final checks.
+ * NULL while any cargo_operations segment is still open, so a later segment cannot be skipped.
+ * Mirrors cargoDoneAtFromTimeline (end, else start, else occurred time for sub-processes).
+ */
+export const PARTNER_CARGO_DONE_SUBSELECT = `
+         (SELECT CASE
+            WHEN EXISTS (
+              SELECT 1 FROM operation_operational_activities oa
+              WHERE oa.operation_id = o.op_id
+                AND oa.deleted_at IS NULL
+                AND oa.entry_type = 'activity'
+                AND oa.milestone_key = 'cargo_operations'
+                AND oa.end_at IS NULL
+            ) THEN NULL
+            ELSE (
+              SELECT MAX(x.t) FROM (
+                SELECT oa.end_at AS t
+                FROM operation_operational_activities oa
+                WHERE oa.operation_id = o.op_id
+                  AND oa.deleted_at IS NULL
+                  AND oa.entry_type = 'activity'
+                  AND oa.milestone_key = 'cargo_operations'
+                UNION ALL
+                SELECT COALESCE(sp.end_at, sp.start_at, sp.occurred_at)
+                FROM operation_sub_processes sp
+                WHERE sp.operation_id = o.op_id
+                  AND sp.deleted_at IS NULL
+                  AND sp.sub_process_key IN (${PARTNER_FINAL_CHECK_KEYS})
+              ) x
+            )
+          END) AS op_cargo_done_at`;
+
+const PARTNER_CARGO_OPS_WINDOW_BY_OPERATION_SQL = `
+  SELECT
+    (SELECT MIN(oa.start_at)
+     FROM operation_operational_activities oa
+     WHERE oa.operation_id = $1
+       AND oa.deleted_at IS NULL
+       AND oa.entry_type = 'activity'
+       AND oa.milestone_key = 'cargo_operations'
+       AND oa.start_at IS NOT NULL) AS window_start_at,
+    (SELECT MAX(oa.end_at)
+     FROM operation_operational_activities oa
+     WHERE oa.operation_id = $1
+       AND oa.deleted_at IS NULL
+       AND oa.entry_type = 'activity'
+       AND oa.milestone_key = 'cargo_operations'
+       AND oa.end_at IS NOT NULL) AS window_end_at,
+    ${PARTNER_CARGO_DONE_SUBSELECT}
+  FROM (SELECT $1::bigint AS op_id) o`;
+
+/** Partner Hose On/Off window and Cargo Done instant for an operation. */
+export async function resolvePartnerCargoOpsWindow(db, operationId) {
+  const r = await db.query(PARTNER_CARGO_OPS_WINDOW_BY_OPERATION_SQL, [operationId]);
+  const row = r.rows[0] ?? {};
+  return {
+    startAt: row.window_start_at ?? null,
+    endAt: row.window_end_at ?? null,
+    doneAt: row.op_cargo_done_at ?? null,
+  };
+}
+
+/** True when the partner submission's plan or shipping instruction was soft-deleted. */
+export function isPartnerSubmissionDeleted(row) {
+  return row?.plan_deleted_at != null || row?.si_deleted_at != null;
+}
+
+/** Partner `status` values, in lifecycle order (v5.7). */
+export const PARTNER_STATUSES = [
+  'Pending',
+  'Approved',
+  'Rejected',
+  'Deleted',
+  'Allocated',
+  'Berthed',
+  'Start Cargo',
+  'Cargo Done',
+  'Sailed Off',
+];
+
+/**
+ * Maps plan and operation timestamps to a partner status.
+ * Berthed = TB, Start Cargo = cargo window start, Cargo Done = same instant as the management dashboard,
+ * Sailed Off = operation SAILED. `operations.status` is not used for the middle stages because
+ * IN_PROGRESS and POST_OPS are set by any activity or first final check.
+ */
 export function deriveExternalStatus(row) {
+  if (isPartnerSubmissionDeleted(row)) return 'Deleted';
   if (row.approval_status === 'Rejected') return 'Rejected';
-  if (row.op_status === 'SAILED') return 'Sailed';
   const opStatus = row.op_status || null;
-  if (opStatus && opStatus !== 'PENDING') return 'Allocated';
+  if (opStatus === 'SAILED') return 'Sailed Off';
+  if (opStatus && opStatus !== 'PENDING') {
+    if (row.op_cargo_done_at) return 'Cargo Done';
+    if (row.op_cargo_ops_window_start_at) return 'Start Cargo';
+    if (row.sp_tb || row.sp_docking_start_time || row.op_tb || row.op_docking_start_time) return 'Berthed';
+    return 'Allocated';
+  }
   if (row.approval_status === 'Approved') return 'Approved';
   return 'Pending';
 }
@@ -162,11 +274,15 @@ export function deriveExternalStatus(row) {
 export const PARTNER_SUBMISSION_LOOKUP_SQL = `
   SELECT s.id AS submission_id, s.external_reference, s.received_at, s.payload,
          si.id AS si_id,
+         si.deleted_at AS si_deleted_at,
+         sp.deleted_at AS plan_deleted_at,
          GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
          p.hub_code AS port_hub_code,
+         mc.hub_code AS company_hub_code,
+         mc.name AS company_name,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -180,18 +296,21 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
+${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
+${PARTNER_CARGO_DONE_SUBSELECT},
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
          si.partner_contract_document_url,
          si.partner_bl_document_url
   FROM integration_submissions s
-  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
-  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id
+  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
+  LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
-    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+    SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
            op.ta, op.etb, op.tb, op.estimated_completion_time,
            op.operations_completed_at, op.cast_off_at, op.sailed_at
     FROM operations op
@@ -206,11 +325,15 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
 export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
   SELECT s.api_key_id, s.external_reference, s.received_at, s.payload,
          si.id AS si_id,
+         si.deleted_at AS si_deleted_at,
+         sp.deleted_at AS plan_deleted_at,
          GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
          p.hub_code AS port_hub_code,
+         mc.hub_code AS company_hub_code,
+         mc.name AS company_name,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -224,18 +347,21 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
+${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
+${PARTNER_CARGO_DONE_SUBSELECT},
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
          si.partner_contract_document_url,
          si.partner_bl_document_url
   FROM integration_submissions s
-  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
-  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id
+  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
+  LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
-    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+    SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
            op.ta, op.etb, op.tb, op.estimated_completion_time,
            op.operations_completed_at, op.cast_off_at, op.sailed_at
     FROM operations op
@@ -244,17 +370,21 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
     LIMIT 1
   ) o ON true
   LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id)
-  WHERE sp.id = $1 AND sp.deleted_at IS NULL`;
+  WHERE sp.id = $1`;
 
 /** Load partner submission rows for webhook enqueue (by shipping instruction id). */
 export const PARTNER_SUBMISSION_BY_SI_SQL = `
   SELECT s.api_key_id, s.external_reference, s.received_at, s.payload,
          si.id AS si_id,
+         si.deleted_at AS si_deleted_at,
+         sp.deleted_at AS plan_deleted_at,
          GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
          p.hub_code AS port_hub_code,
+         mc.hub_code AS company_hub_code,
+         mc.name AS company_name,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -268,18 +398,21 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
+${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
+${PARTNER_CARGO_DONE_SUBSELECT},
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
          si.partner_contract_document_url,
          si.partner_bl_document_url
   FROM integration_submissions s
-  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
-  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id
+  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
+  LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
-    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+    SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
            op.ta, op.etb, op.tb, op.estimated_completion_time,
            op.operations_completed_at, op.cast_off_at, op.sailed_at
     FROM operations op
@@ -288,7 +421,7 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
     LIMIT 1
   ) o ON true
   LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id)
-  WHERE si.id = $1 AND sp.deleted_at IS NULL`;
+  WHERE si.id = $1`;
 
 export async function findPartnerSubmission(db, apiKeyId, { siId, externalReference }) {
   if (siId != null) {

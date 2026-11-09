@@ -4,12 +4,15 @@ import {
   buildClockHourBuckets,
   classifyHourMovement,
   classifyHourDisplayStatus,
+  normalizeMovementStatusForPersist,
   computeCompletionFromMovedQty,
   computeDirectionalTankDelta,
   computeHourlyBucketsFromManualCheckpoints,
   getHourlyBucketsForLineEntry,
   mergeHourlyBuckets,
   buildHourlyRateSummary,
+  manualTankLabel,
+  withManualTankDetail,
 } from './atg-hourly-progress.js';
 
 describe('buildClockHourBuckets', () => {
@@ -95,6 +98,21 @@ describe('computeDirectionalTankDelta', () => {
     const r = computeDirectionalTankDelta(5000, 4500, 'Loading');
     assert.equal(r.qtyMoved, 500);
     assert.equal(r.directionMismatch, false);
+  });
+});
+
+describe('normalizeMovementStatusForPersist', () => {
+  it('passes through known persisted statuses', () => {
+    assert.equal(normalizeMovementStatusForPersist('active'), 'active');
+    assert.equal(normalizeMovementStatusForPersist('flat_movement'), 'flat_movement');
+    assert.equal(normalizeMovementStatusForPersist('incomplete'), 'incomplete');
+    assert.equal(normalizeMovementStatusForPersist('direction_mismatch'), 'direction_mismatch');
+  });
+
+  it('maps unknown or empty status to incomplete', () => {
+    assert.equal(normalizeMovementStatusForPersist(''), 'incomplete');
+    assert.equal(normalizeMovementStatusForPersist(null), 'incomplete');
+    assert.equal(normalizeMovementStatusForPersist('future_status'), 'incomplete');
   });
 });
 
@@ -312,5 +330,51 @@ describe('getHourlyBucketsForLineEntry window scoping', () => {
     assert.ok(new Date(last1).getTime() <= new Date('2026-09-03T05:00:00+07:00').getTime());
     assert.ok(new Date(first2).getTime() >= new Date('2026-09-03T05:01:00+07:00').getTime());
     assert.notDeepEqual(entry1.map((b) => b.hourStart), entry2.map((b) => b.hourStart));
+  });
+});
+
+describe('manual tank label on hourly buckets', () => {
+  const line = {
+    tankCodeById: { 37: '5102', 40: '3601' },
+    manualOverrideTankIds: [37],
+    manualOverrideNote: 'Counted by shore tank dip',
+  };
+
+  it('labels an overridden tank and carries the note', () => {
+    const label = manualTankLabel(line, [37]);
+    assert.equal(label.code, '5102');
+    assert.equal(label.manualOverride, true);
+    assert.equal(label.overrideNote, 'Counted by shore tank dip');
+  });
+
+  it('does not flag a plain manual tank as an override', () => {
+    assert.equal(manualTankLabel(line, [40]).manualOverride, false);
+  });
+
+  it('joins several manual tanks into one label', () => {
+    const label = manualTankLabel(line, [37, 40]);
+    assert.equal(label.code, '5102, 3601');
+    assert.equal(label.manualOverride, true);
+  });
+
+  it('returns null when a tank code is unknown', () => {
+    assert.equal(manualTankLabel(line, [99]), null);
+    assert.equal(manualTankLabel({}, [37]), null);
+  });
+
+  it('puts the label on every bucket with the bucket quantity', () => {
+    const out = withManualTankDetail(
+      [{ hourStart: '2026-11-09T02:00:00.000Z', qtyMoved: 80.57, displayQtyMoved: 80.57 }],
+      manualTankLabel(line, [37])
+    );
+    assert.equal(out[0].tankDetail.length, 1);
+    assert.equal(out[0].tankDetail[0].code, '5102');
+    assert.equal(out[0].tankDetail[0].displayQtyMoved, 80.57);
+    assert.equal(out[0].tankDetail[0].manualOverride, true);
+  });
+
+  it('leaves buckets untouched without a label', () => {
+    const buckets = [{ hourStart: 'x', qtyMoved: 1 }];
+    assert.equal(withManualTankDetail(buckets, null), buckets);
   });
 });

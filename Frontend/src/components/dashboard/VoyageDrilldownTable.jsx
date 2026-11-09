@@ -2,14 +2,18 @@
  * By Voyage: one row per call, grouped Incoming (unload) / Outgoing (load).
  */
 import { Fragment, useCallback, useMemo, useState } from 'react'
-import { voyageFlowRate } from '../../utils/managementDashboardFlow.js'
+import { voyageActiveFlowRate, voyageFlowRate } from '../../utils/managementDashboardFlow.js'
 import { voyageMovedQtyLines, voyageMovedQtySortValue } from '../../utils/managementDashboardProduct.js'
 import { sortModalRows } from '../../utils/widgetDetailSort.js'
+import {
+  castOffSortTimestamp,
+  fmtMgmtCastOffDate,
+} from '../../utils/managementDashboardMetricEvidence.js'
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
 import ProductMetricEvidenceRow from './ProductMetricEvidenceRow.jsx'
 
-const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'cargoDoneToSail']
-const COL_SPAN = 9
+const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'activeFlow', 'cargoDoneToSail']
+const COL_SPAN = 11
 
 function fmtNum(n, d = 1) {
   return n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d })
@@ -73,23 +77,68 @@ const VOYAGE_COLUMNS = [
   { key: 'moved', label: 'Moved (MT)', align: 'right', sortValue: voyageMovedQtySortValue },
   { key: 'wait', label: 'Wait', align: 'right', sortValue: (r) => r.wait },
   { key: 'pre', label: 'Berth → start cargo', align: 'right', sortValue: (r) => r.pre },
-  { key: 'flow', label: 'Avg flow', align: 'right', sortValue: (r) => voyageFlowRate(r) },
+  { key: 'flow', label: 'Achieved rate', align: 'right', sortValue: (r) => voyageFlowRate(r) },
+  { key: 'activeFlow', label: 'Active rate', align: 'right', sortValue: (r) => voyageActiveFlowRate(r) },
   { key: 'cargoDoneToSail', label: 'Cargo done → sailed off', align: 'right', sortValue: (r) => r.cargoDoneToSailH },
+  {
+    key: 'dateCompleted',
+    label: 'Date completed',
+    align: 'right',
+    sortValue: (r) => castOffSortTimestamp(r.castOff),
+  },
   { key: 'status', label: 'Status', sortValue: statusLabel },
 ]
 
+/** Tail-column layout: spacing + separators so durations/dates do not run together. */
+const VOYAGE_COLUMN_UI = {
+  flow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
+  activeFlow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
+  cargoDoneToSail: {
+    thClass: 'mgmt-voyage-th--cargo-done',
+    tdClass: 'mgmt-voyage-col--cargo-done',
+    headerLines: ['Cargo done →', 'sailed off'],
+  },
+  dateCompleted: {
+    thClass: 'mgmt-voyage-th--date-completed',
+    tdClass: 'mgmt-voyage-col--date-completed',
+    headerLines: ['Date', 'completed'],
+  },
+}
+
+function voyageThClass(column) {
+  const ui = VOYAGE_COLUMN_UI[column.key]
+  return [column.align === 'right' ? 'mgmt-r' : '', 'mgmt-voyage-th', ui?.thClass].filter(Boolean).join(' ')
+}
+
+function voyageTdClass(columnKey, extra = '') {
+  const col = VOYAGE_COLUMNS.find((c) => c.key === columnKey)
+  const ui = VOYAGE_COLUMN_UI[columnKey]
+  return [col?.align === 'right' ? 'mgmt-r' : '', ui?.tdClass, extra].filter(Boolean).join(' ')
+}
+
 function SortHeader({ column, sort, onSort }) {
   const active = sort?.key === column.key
+  const ui = VOYAGE_COLUMN_UI[column.key]
   return (
-    <th className={column.align === 'right' ? 'mgmt-r' : ''}>
+    <th className={voyageThClass(column)}>
       <button
         type="button"
-        className="mgmt-modal-sort"
+        className="mgmt-modal-sort mgmt-voyage-th__sort"
         onClick={() => onSort(column.key)}
         aria-label={`Sort by ${column.label}`}
       >
-        {column.label}
-        <span aria-hidden="true">{active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}</span>
+        {ui?.headerLines ? (
+          <span className="mgmt-voyage-th__label">
+            {ui.headerLines[0]}
+            <br />
+            {ui.headerLines[1]}
+          </span>
+        ) : (
+          column.label
+        )}
+        <span className="mgmt-voyage-th__sort-icon" aria-hidden="true">
+          {active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}
+        </span>
       </button>
     </th>
   )
@@ -138,8 +187,7 @@ function VoyageBlock({
       role: 'button',
       tabIndex: 0,
       className: [
-        'mgmt-r',
-        'mgmt-product-voyage-metric-cell',
+        voyageTdClass(columnKey, 'mgmt-product-voyage-metric-cell'),
         open ? 'mgmt-product-voyage-metric-cell--open' : '',
       ].filter(Boolean).join(' '),
       title: 'Show calculation details',
@@ -173,6 +221,7 @@ function VoyageBlock({
             {sorted.map((r) => {
               const rk = String(r.id)
               const rate = voyageFlowRate(r)
+              const activeRate = voyageActiveFlowRate(r)
               const show = expanded?.rowKey === rk && METRIC_COLUMNS.includes(expanded.columnKey)
               return (
                 <Fragment key={rk}>
@@ -188,7 +237,9 @@ function VoyageBlock({
                     <td {...metricProps(rk, 'wait')}>{fmtMgmtDurationDays(r.wait)}</td>
                     <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>
                     <td {...metricProps(rk, 'flow')}>{rate == null ? '—' : `${fmtNum(rate, 1)} MT/h`}</td>
+                    <td {...metricProps(rk, 'activeFlow')}>{activeRate == null ? '—' : `${fmtNum(activeRate, 1)} MT/h`}</td>
                     <td {...metricProps(rk, 'cargoDoneToSail')}>{fmtMgmtDurationHours(r.cargoDoneToSailH)}</td>
+                    <td className={voyageTdClass('dateCompleted')}>{fmtMgmtCastOffDate(r.castOff)}</td>
                     <td>{statusChip(r)}</td>
                   </tr>
                   {show ? (

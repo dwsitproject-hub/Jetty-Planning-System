@@ -16,6 +16,74 @@ export function productKeyFromCommodity(commodity) {
   return s.toUpperCase()
 }
 
+/** Commodity group when set; otherwise short name, then long name. */
+export function reportingProductLabel(parts) {
+  const group = String(parts?.commodityGroup ?? parts?.commodity_group ?? '').trim()
+  if (group) return group
+  const shortName = String(
+    parts?.shortName ?? parts?.commodityShortName ?? parts?.commodity_short_name ?? ''
+  ).trim()
+  const name = String(parts?.name ?? parts?.commodityName ?? parts?.commodity_name ?? '').trim()
+  return shortName || name || 'Unknown'
+}
+
+/** Structured SI products attached by the operations API. */
+export function cargoProductsFromRow(row) {
+  const summaries = row?.cargoBreakdownSummary
+  if (!Array.isArray(summaries)) return []
+  const products = []
+  for (const summary of summaries) {
+    if (!Array.isArray(summary?.products)) continue
+    for (const product of summary.products) products.push(product)
+  }
+  return products
+}
+
+function groupedProducts(products) {
+  const groups = new Map()
+  for (const product of products) {
+    const label = reportingProductLabel(product)
+    const key = productKeyFromCommodity(label)
+    let group = groups.get(key)
+    if (!group) {
+      group = { label, key, qty: 0 }
+      groups.set(key, group)
+    }
+    group.qty += Number(product.qty) || 0
+  }
+  return [...groups.values()]
+}
+
+/** Rate fields from the cargo-rate API entry for one product. */
+function productRateFields(rateEntry) {
+  return {
+    productRateMtH: rateEntry?.rateMtH ?? null,
+    productMovedQty: rateEntry?.movedQty ?? null,
+    productLoggedHours: rateEntry?.loggedHours ?? null,
+    productActiveHours: rateEntry?.activeHours ?? null,
+    productActiveRateMtH: rateEntry?.activeRateMtH ?? null,
+    productRateSource: rateEntry?.source ?? null,
+  }
+}
+
+function sliceFromGroup(row, group, groups) {
+  const voyageQty = Number(row.qty) || 0
+  const qtySum = groups.reduce((sum, item) => sum + item.qty, 0)
+  let qty = group.qty
+  if (!(qty > 0)) {
+    if (groups.length === 1) qty = voyageQty
+    else if (qtySum <= 0 && voyageQty > 0) qty = voyageQty / groups.length
+  }
+  const rateEntry = row.productRatesByKey?.[group.key]
+  return {
+    ...row,
+    productLabel: group.label,
+    productKey: group.key,
+    qty: qty || (groups.length === 1 ? voyageQty : qty),
+    ...productRateFields(rateEntry),
+  }
+}
+
 /**
  * @param {string} totalQtyDisplay
  * @returns {Map<string, number>}
@@ -71,6 +139,13 @@ function movedQtyForProduct(row, label) {
  * @returns {Array<{ label: string, qty: number | null }>}
  */
 export function voyageMovedQtyLines(row) {
+  const products = cargoProductsFromRow(row)
+  if (products.length) {
+    return groupedProducts(products).map((group) => ({
+      label: group.label,
+      qty: movedQtyForProduct(row, group.key),
+    }))
+  }
   return productShortNamesFromVoyageRow(row).map((label) => ({
     label,
     qty: movedQtyForProduct(row, label),
@@ -92,11 +167,36 @@ export function productSliceFlowRate(slice) {
 }
 
 /**
+ * Fleet rate over many product slices: total moved MT ÷ total hours (not a mean of rates).
+ * Only slices with both moved qty and hours count, so the ratio stays like-for-like.
+ * @param {object[]} slices
+ * @param {"productLoggedHours" | "productActiveHours"} hoursKey
+ */
+export function weightedSliceRate(slices, hoursKey) {
+  let moved = 0
+  let hours = 0
+  for (const s of slices || []) {
+    const q = Number(s?.productMovedQty)
+    const h = Number(s?.[hoursKey])
+    if (!(q > 0) || !(h > 0)) continue
+    moved += q
+    hours += h
+  }
+  return hours > 0 ? moved / hours : null
+}
+
+/**
  * One voyage → one or more product slices (shared voyage times, per-product qty).
  * @param {object} row normalized dashboard row
  * @returns {object[]}
  */
 export function expandVoyageToProductSlices(row) {
+  const products = cargoProductsFromRow(row)
+  if (products.length) {
+    const groups = groupedProducts(products)
+    return groups.map((group) => sliceFromGroup(row, group, groups))
+  }
+
   const names = productShortNamesFromVoyageRow(row)
   const qtyMap = parseProductQtyMap(row.totalQtyDisplay)
   const voyageQty = Number(row.qty) || 0
@@ -111,10 +211,7 @@ export function expandVoyageToProductSlices(row) {
       productLabel: label,
       productKey: key,
       qty: qty || voyageQty,
-      productRateMtH: rateEntry?.rateMtH ?? null,
-      productMovedQty: rateEntry?.movedQty ?? null,
-      productLoggedHours: rateEntry?.loggedHours ?? null,
-      productRateSource: rateEntry?.source ?? null,
+      ...productRateFields(rateEntry),
     }
     return [slice]
   }
@@ -134,10 +231,7 @@ export function expandVoyageToProductSlices(row) {
       productLabel: label,
       productKey: key,
       qty,
-      productRateMtH: rateEntry?.rateMtH ?? null,
-      productMovedQty: rateEntry?.movedQty ?? null,
-      productLoggedHours: rateEntry?.loggedHours ?? null,
-      productRateSource: rateEntry?.source ?? null,
+      ...productRateFields(rateEntry),
     }
   })
 }
@@ -191,7 +285,8 @@ export function aggregateByProduct(rows, opts = {}) {
       throughputMt: voyages.reduce((s, r) => s + (Number(r.qty) || 0), 0),
       avgWait: meanField(voyages, (r) => r.wait),
       avgPre: meanField(voyages, (r) => r.pre),
-      avgRate: meanField(voyages, (r) => productSliceFlowRate(r)),
+      avgRate: weightedSliceRate(voyages, 'productLoggedHours'),
+      activeRate: weightedSliceRate(voyages, 'productActiveHours'),
       avgCargoDoneToSail: meanField(voyages, (r) => r.cargoDoneToSailH),
       coverage: {
         total: n,

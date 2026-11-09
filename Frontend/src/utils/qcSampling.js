@@ -1,0 +1,191 @@
+import { samplingPalkaKey } from './samplingExtractMerge.js'
+import { cardsToSaveBody } from './samplingCommodity.js'
+import { metricValue, reportParams, specOf, valueCodesOf } from './qcSpec.js'
+import { MAX_SAMPLING_PALKA_FIELD_CHARS, MAX_SAMPLING_RECORD_REMARK_CHARS } from '../constants/inputLimits.js'
+
+const METRIC_MAX = 100
+
+/** Parse a typed metric; accepts a decimal comma (Indonesian locale) and a trailing %. */
+export function parseMetric(raw) {
+  const s = String(raw ?? '').trim().replace('%', '').replace(',', '.')
+  if (!/^\d{1,3}(\.\d{1,4})?$/.test(s)) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Store metrics with a dot decimal so the Loading hub and API read the same string. */
+export function normalizeMetric(raw) {
+  const s = String(raw ?? '').trim()
+  if (!s) return ''
+  const n = parseMetric(s)
+  return n == null ? s : s.replace('%', '').replace(',', '.')
+}
+
+function metricError(raw) {
+  if (String(raw ?? '').trim() === '') return null
+  const n = parseMetric(raw)
+  if (n == null) return 'invalid'
+  return n < 0 || n > METRIC_MAX ? 'range' : null
+}
+
+/**
+ * @returns {{ errors: Record<string,string>, duplicate: boolean, ok: boolean }}
+ * `duplicate` is a warning only: palka labels are free text, so a repeat is allowed.
+ */
+export function validateSample(form, records, editingId = null, { kind = 'palka' } = {}) {
+  const errors = {}
+  const noPalka = String(form?.noPalka ?? '').trim()
+  if (kind === 'tank') {
+    if (!String(form?.tankId ?? '').trim()) errors.noPalka = 'tankRequired'
+  } else if (!noPalka) {
+    errors.noPalka = 'palkaRequired'
+  }
+  const ffaError = metricError(form?.ffa)
+  const moistureError = metricError(form?.moisture)
+  if (ffaError) errors.ffa = ffaError
+  if (moistureError) errors.moisture = moistureError
+  const hasValue = [form?.ffa, form?.moisture].some((v) => String(v ?? '').trim() !== '')
+  if (!hasValue) errors.metrics = 'metricRequired'
+
+  const key = samplingPalkaKey(noPalka)
+  const duplicate = Boolean(
+    key && (records || []).some((r) => r.id !== editingId && samplingPalkaKey(r.noPalka) === key)
+  )
+  return { errors, duplicate, ok: Object.keys(errors).length === 0 }
+}
+
+/** Build a stored record from the form (trimmed, dot-decimal metrics). */
+export function buildSampleRecord(form, id) {
+  const out = {
+    id,
+    noPalka: String(form.noPalka || '').trim().slice(0, MAX_SAMPLING_PALKA_FIELD_CHARS),
+    ffa: normalizeMetric(form.ffa),
+    moisture: normalizeMetric(form.moisture),
+    remark: String(form.remark || '').trim().slice(0, MAX_SAMPLING_RECORD_REMARK_CHARS),
+  }
+  if (form.tankId != null && String(form.tankId).trim() !== '') {
+    const tankId = Number(form.tankId)
+    out.tankId = Number.isFinite(tankId) && tankId > 0 ? tankId : form.tankId
+  }
+  return out
+}
+
+/** Next palka label after the last record: "3" -> "4", "2P" -> "3P". Empty when not numeric. */
+export function suggestNextPalka(records) {
+  const last = [...(records || [])].reverse().find((r) => String(r?.noPalka ?? '').trim())
+  if (!last) return ''
+  const m = String(last.noPalka).trim().match(/^(\D*)(\d+)(\D*)$/)
+  if (!m) return ''
+  return `${m[1]}${Number(m[2]) + 1}${m[3]}`.slice(0, MAX_SAMPLING_PALKA_FIELD_CHARS)
+}
+
+function mean(records, field) {
+  const values = (records || []).map((r) => parseMetric(r?.[field])).filter((n) => n != null)
+  if (values.length === 0) return null
+  return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2)
+}
+
+/** Live averages over the recorded palka rows (2 dp, null when no values). */
+export function computeAverages(records) {
+  return { avgFfa: mean(records, 'ffa'), avgMoisture: mean(records, 'moisture') }
+}
+
+/** Average or sum of one sample metric. Blank and non-numeric cells are skipped. Null when none. */
+export function aggregateSampleMetric(records, code, mode) {
+  const values = (records || []).map((r) => parseMetric(metricValue(r, code))).filter((n) => n != null)
+  if (values.length === 0) return null
+  const total = values.reduce((a, b) => a + b, 0)
+  return (mode === 'sum' ? total : total / values.length).toFixed(2)
+}
+
+/** True when two sample lists differ in palka or readings (ids are ignored: local ones are temporary). */
+export function recordsDiffer(a, b) {
+  const sig = (list) => (list || []).map((r) => [r.tankId || '', r.noPalka, r.ffa, r.moisture, r.remark || ''].join('|')).join(';')
+  return sig(a) !== sig(b)
+}
+
+/**
+ * Payload for `upsertSubProcess`: 'draft' saves as In Progress, 'final' as Done.
+ * Samples already written through the record endpoints are left out (`includeRecords: false`)
+ * so this save cannot overwrite a sample another editor added; `expectedUpdatedAt` makes the
+ * API reject the save with 409 when the record changed since it was loaded.
+ */
+export function buildSamplingPayload(sampling, mode, { includeRecords = true, expectedUpdatedAt } = {}) {
+  const startTime = sampling?.startTime || null
+  const endTime = sampling?.endTime || null
+  const commodities = cardsToSaveBody(sampling?.commodities)
+  const hasCards = Array.isArray(commodities) && commodities.length > 0
+  return {
+    phase: 'Pre-Checking',
+    status: mode === 'draft' ? 'In Progress' : 'Done',
+    occurredAt: startTime,
+    startAt: startTime,
+    endAt: endTime,
+    remark: sampling?.remark || '',
+    ...(hasCards
+      ? { commodities }
+      : {
+          ffaAverage: normalizeMetric(sampling?.ffaAverage),
+          moistureAverage: normalizeMetric(sampling?.moistureAverage),
+          dobi: normalizeMetric(sampling?.dobi),
+          iodineValue: normalizeMetric(sampling?.iodineValue),
+        }),
+    ...(includeRecords && !hasCards ? { payload: { records: sampling?.records || [] } } : {}),
+    source: 'qc',
+    ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+  }
+}
+
+const REPORT_FIELDS = ['ffaAverage', 'moistureAverage', 'dobi', 'iodineValue']
+
+function hasText(value) {
+  return value != null && String(value).trim() !== ''
+}
+
+/** True when a card (or the single-card visit) holds a sample, a report figure or a document. */
+function hasQcEvidence(card) {
+  if ((card?.records || []).length > 0 || (card?.documents || []).length > 0) return true
+  if (REPORT_FIELDS.some((field) => hasText(card?.[field]))) return true
+  const metrics = card?.metrics && typeof card.metrics === 'object' ? card.metrics : {}
+  return Object.values(metrics).some(hasText)
+}
+
+/**
+ * Commodities that would be saved final with no QC evidence at all.
+ * Returns their short names ('' for the visit without commodity cards); empty when complete.
+ */
+export function findEmptySamplingCards(sampling) {
+  const cards = Array.isArray(sampling?.commodities) && sampling.commodities.length ? sampling.commodities : null
+  if (!cards) return hasQcEvidence(sampling) ? [] : ['']
+  return cards.filter((card) => !hasQcEvidence(card)).map((card) => card.shortName || card.name || '')
+}
+
+/** Metric fields in the report summary that must stay inside their caps before saving. */
+export function validateSummaryFields(sampling) {
+  const errors = {}
+  const cards = Array.isArray(sampling?.commodities) && sampling.commodities.length ? sampling.commodities : [sampling]
+  for (const card of cards) {
+    const prefix = card?.commodityId != null ? `${card.commodityId}.` : ''
+    const params = reportParams(specOf(card))
+    if (params.length === 0) {
+      for (const [field, max] of [['ffaAverage', 100], ['moistureAverage', 100], ['dobi', 100], ['iodineValue', 200]]) {
+        const raw = card?.[field]
+        if (String(raw ?? '').trim() === '') continue
+        const n = parseMetric(raw)
+        if (n == null) errors[`${prefix}${field}`] = 'invalid'
+        else if (n > max) errors[`${prefix}${field}`] = 'range'
+      }
+      continue
+    }
+    for (const param of params) {
+      for (const code of valueCodesOf(param)) {
+        const raw = metricValue(card, code)
+        if (String(raw ?? '').trim() === '') continue
+        const n = parseMetric(raw)
+        if (n == null) errors[`${prefix}${code}`] = 'invalid'
+        else if (n > param.maxValue) errors[`${prefix}${code}`] = 'range'
+      }
+    }
+  }
+  return errors
+}

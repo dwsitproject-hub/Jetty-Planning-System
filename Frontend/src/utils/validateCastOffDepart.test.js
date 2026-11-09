@@ -26,4 +26,24 @@ describe('validateCastOffDepart', () => {
     const ok = new Date('2026-06-08T00:43:00.000Z')
     assert.equal(validateCastOffDepart(ok, { tbAt: tb, nowMs }), null)
   })
+
+  it('accepts a future cast-off when allowFuture is set', () => {
+    const future = new Date(nowMs + CAST_OFF_FUTURE_TOLERANCE_MS + 60_000)
+    const latest = new Date('2026-06-08T00:43:00.000Z')
+    assert.equal(validateCastOffDepart(future, { tbAt: tb, latestExecutionAt: latest, nowMs, allowFuture: true }), null)
+  })
+
+  it('still rejects before TB or the latest log when future dates are allowed', () => {
+    const beforeTb = new Date('2026-05-20T00:00:00.000Z')
+    assert.match(
+      validateCastOffDepart(beforeTb, { tbAt: tb, nowMs, allowFuture: true }),
+      /berthing/i
+    )
+    const latest = new Date(nowMs + 2 * 60 * 60 * 1000)
+    const beforeLog = new Date(nowMs + 60 * 60 * 1000)
+    assert.match(
+      validateCastOffDepart(beforeLog, { tbAt: tb, latestExecutionAt: latest, nowMs, allowFuture: true }),
+      /execution log/i
+    )
+  })
 })

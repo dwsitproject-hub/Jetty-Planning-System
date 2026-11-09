@@ -8,9 +8,12 @@ import { Fragment, useCallback, useState } from 'react'
 
 import { expandVoyageToProductSlices, productQtyOnVoyage } from '../../utils/managementDashboardProduct.js'
 
+import { fmtMgmtCastOffDate } from '../../utils/managementDashboardMetricEvidence.js'
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
 
 import ProductMetricEvidenceRow from './ProductMetricEvidenceRow.jsx'
+
+const EVIDENCE_COL_SPAN = 8
 
 
 
@@ -31,6 +34,8 @@ export const CHART_METRIC_VOYAGE_COLUMN = {
   avgPre: 'pre',
 
   avgRate: 'flow',
+
+  activeRate: 'flow',
 
   avgCargoDoneToSail: 'cargoDoneToSail',
 
@@ -112,6 +117,10 @@ export default function ProductVoyageDetailTable({
 
   evidenceEnabled = true,
 
+  onFlowDetailOpen = null,
+
+  flowDrawerRowId = null,
+
 }) {
 
   const list = Array.isArray(rows) ? rows : []
@@ -142,9 +151,17 @@ export default function ProductVoyageDetailTable({
 
   const onMetricClick = evidenceEnabled
 
-    ? (rk, columnKey) => (e) => {
+    ? (rk, columnKey, rowForFlow) => (e) => {
 
         e.stopPropagation()
+
+        if (columnKey === 'flow' && onFlowDetailOpen) {
+
+          onFlowDetailOpen(rowForFlow)
+
+          return
+
+        }
 
         toggleEvidence(rk, columnKey)
 
@@ -174,12 +191,18 @@ export default function ProductVoyageDetailTable({
 
             <th className={cellClass('mgmt-r', 'pre', highlightColumn)}>Berth → start cargo</th>
 
-            <th className={cellClass('mgmt-r', 'flow', highlightColumn)}>Avg flow</th>
+            <th className={cellClass('mgmt-r mgmt-voyage-th--flow', 'flow', highlightColumn)}>Avg flow</th>
 
-            <th className={cellClass('mgmt-r', 'cargoDoneToSail', highlightColumn)}>
+            <th className={cellClass('mgmt-r mgmt-voyage-th--cargo-done', 'cargoDoneToSail', highlightColumn)}>
+              Cargo done →
+              <br />
+              sailed off
+            </th>
 
-              Cargo done → sailed off
-
+            <th className="mgmt-r mgmt-voyage-th--date-completed">
+              Date
+              <br />
+              completed
             </th>
 
           </tr>
@@ -196,13 +219,19 @@ export default function ProductVoyageDetailTable({
 
               const rk = rowKey(r, i)
 
+              const flowDrawerOpen =
+
+                onFlowDetailOpen && flowDrawerRowId != null && String(r.id) === String(flowDrawerRowId)
+
               const showEvidence =
 
                 evidenceEnabled &&
 
                 expanded?.rowKey === rk &&
 
-                METRIC_COLUMNS.includes(expanded.columnKey)
+                METRIC_COLUMNS.includes(expanded.columnKey) &&
+
+                expanded.columnKey !== 'flow'
 
 
 
@@ -218,11 +247,19 @@ export default function ProductVoyageDetailTable({
 
                       className: [
 
-                        cellClass('mgmt-r', columnKey, highlightColumn),
+                        cellClass(
+                          `mgmt-r ${columnKey === 'flow' ? 'mgmt-voyage-col--flow' : ''} ${columnKey === 'cargoDoneToSail' ? 'mgmt-voyage-col--cargo-done' : ''}`.trim(),
+                          columnKey,
+                          highlightColumn,
+                        ),
 
                         'mgmt-product-voyage-metric-cell',
 
-                        expanded?.rowKey === rk && expanded?.columnKey === columnKey
+                        (columnKey === 'flow' && onFlowDetailOpen
+
+                          ? flowDrawerOpen
+
+                          : expanded?.rowKey === rk && expanded?.columnKey === columnKey)
 
                           ? 'mgmt-product-voyage-metric-cell--open'
 
@@ -234,7 +271,7 @@ export default function ProductVoyageDetailTable({
 
                         .join(' '),
 
-                      onClick: onMetricClick(rk, columnKey),
+                      onClick: onMetricClick(rk, columnKey, r),
 
                       onKeyDown: (e) => {
 
@@ -242,15 +279,27 @@ export default function ProductVoyageDetailTable({
 
                           e.preventDefault()
 
-                          onMetricClick(rk, columnKey)(e)
+                          onMetricClick(rk, columnKey, r)(e)
 
                         }
 
                       },
 
-                      title: 'Show calculation details',
+                      title:
 
-                      'aria-expanded': expanded?.rowKey === rk && expanded?.columnKey === columnKey,
+                        columnKey === 'flow' && onFlowDetailOpen
+
+                          ? 'Open flow rates detail'
+
+                          : 'Show calculation details',
+
+                      'aria-expanded':
+
+                        columnKey === 'flow' && onFlowDetailOpen
+
+                          ? flowDrawerOpen
+
+                          : expanded?.rowKey === rk && expanded?.columnKey === columnKey,
 
                     }
 
@@ -290,6 +339,8 @@ export default function ProductVoyageDetailTable({
 
                     </td>
 
+                    <td className="mgmt-r mgmt-voyage-col--date-completed">{fmtMgmtCastOffDate(r.castOff)}</td>
+
                   </tr>
 
                   {showEvidence ? (
@@ -306,6 +357,8 @@ export default function ProductVoyageDetailTable({
 
                       timelinesByOpId={timelinesByOpId}
 
+                      colSpan={EVIDENCE_COL_SPAN}
+
                     />
 
                   ) : null}
@@ -320,7 +373,7 @@ export default function ProductVoyageDetailTable({
 
             <tr>
 
-              <td colSpan={7} className="text-steel">
+              <td colSpan={EVIDENCE_COL_SPAN} className="text-steel">
 
                 {emptyMessage}
 

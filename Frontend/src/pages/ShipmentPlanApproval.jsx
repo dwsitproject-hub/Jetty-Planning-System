@@ -9,6 +9,7 @@ import '../styles/shipping-instruction.css'
 import '../styles/si-view.css'
 
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { isInternalSiReference } from '../utils/internalSiReference.js'
 
 function breakdownTotalLabel(breakdown) {
   const rows = Array.isArray(breakdown) ? breakdown : []
@@ -221,6 +222,7 @@ export default function ShipmentPlanApproval() {
               <article key={si.id} className="si-view-doc shipment-plan-approval__si-card">
                 <h3 className="shipment-plan-approval__si-title">
                   {t('approvalSiNoLabel')}: {si.referenceNumber || `SI-${si.id}`}
+                  {isInternalSiReference(si.referenceNumber) ? ` (${t('approvalInternalSiMark')})` : ''}
                 </h3>
                 <div className="si-view-summary shipment-plan-approval__si-summary">
                   <div className="si-view-summary__row">
@@ -238,6 +240,7 @@ export default function ShipmentPlanApproval() {
                         <th className="si-view-table__th">{t('approvalTableKontrak')}</th>
                         <th className="si-view-table__th">{t('approvalTablePo')}</th>
                         <th className="si-view-table__th">{t('approvalTableSo')}</th>
+                        <th className="si-view-table__th">{t('approvalTableSto')}</th>
                         <th className="si-view-table__th">{t('approvalTableKeterangan')}</th>
                       </tr>
                     </thead>
@@ -253,6 +256,7 @@ export default function ShipmentPlanApproval() {
                             <td className="si-view-table__cell">{row.contractNo || '—'}</td>
                             <td className="si-view-table__cell">{row.poNo || '—'}</td>
                             <td className="si-view-table__cell">{row.soNo || '—'}</td>
+                            <td className="si-view-table__cell">{row.stoNo || '—'}</td>
                             <td className="si-view-table__cell">{row.remarks || '—'}</td>
                           </tr>
                         ))
@@ -265,10 +269,11 @@ export default function ShipmentPlanApproval() {
                           <td className="si-view-table__cell">—</td>
                           <td className="si-view-table__cell">—</td>
                           <td className="si-view-table__cell">—</td>
+                          <td className="si-view-table__cell">—</td>
                         </tr>
                       )}
                       <tr className="si-view-table__total">
-                        <td colSpan={6} className="si-view-table__cell si-view-table__cell--total-label">
+                        <td colSpan={7} className="si-view-table__cell si-view-table__cell--total-label">
                           {t('approvalTableTotal')}
                         </td>
                         <td className="si-view-table__cell si-view-table__cell--total">{totalLabel}</td>

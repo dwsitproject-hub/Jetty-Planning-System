@@ -13,6 +13,7 @@ import {
   masterAuditSelectSql,
   pickMasterAudit,
 } from '../lib/master-row-audit.js';
+import { mapOverrideForClient } from '../lib/tank-manual-override.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageDelete, requirePageEdit, requirePageView } from '../middleware/permissions.js';
@@ -35,6 +36,7 @@ function toTank(row) {
     description: row.description ?? null,
     sortOrder: Number(row.sort_order ?? 0),
     hasAtg: row.has_atg === true,
+    manualOverride: mapOverrideForClient(row),
     productName: row.product_name != null ? String(row.product_name).trim() : null,
     ...pickMasterAudit(row),
   };
@@ -62,6 +64,8 @@ router.get('/', async (req, res) => {
   const r = await pool.query(
     `SELECT t.id, t.port_id, t.code, t.name, t.description, t.sort_order,
             ${masterAuditSelectSql('t')},
+            t.manual_override_enabled, t.manual_override_reason, t.manual_override_set_at,
+            t.manual_override_expires_at, ov.username AS manual_override_set_by_name,
             p.name AS port_name,
             EXISTS (
               SELECT 1
@@ -81,6 +85,7 @@ router.get('/', async (req, res) => {
      FROM master_tanks t
      JOIN ports p ON p.id = t.port_id AND p.deleted_at IS NULL
      ${masterAuditJoinSql('t')}
+     LEFT JOIN users ov ON ov.id = t.manual_override_set_by
      WHERE t.port_id = $1 AND t.deleted_at IS NULL
      ORDER BY t.sort_order ASC, LOWER(t.code) ASC, t.id ASC`,
     [portId]

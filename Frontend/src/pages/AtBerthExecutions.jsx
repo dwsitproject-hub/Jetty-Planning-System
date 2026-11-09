@@ -7,10 +7,13 @@ import { term } from '../i18n/term'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import { shouldPollLiveCargoProgress } from '../utils/berthingEligibility'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
+import QcDecisionPill, { QcDecisionPillRow } from '../components/qc/QcDecisionPill'
+import { commodityDecisionsFromRow } from '../utils/samplingCommodity'
 import ColumnSelectFilter from '../components/ColumnSelectFilter'
 import ColumnDateRangeFilter from '../components/ColumnDateRangeFilter'
 import {
@@ -328,6 +331,15 @@ function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLab
 ]
 }
 
+function commodityCell(row) {
+  return (
+    <div className="at-berth-commodity-cell">
+      {renderCommodityQtyCell(row)}
+      <QcDecisionPillRow commodities={commodityDecisionsFromRow(row)} />
+    </div>
+  )
+}
+
 function AtBerthDetailPanel({ r, onOpenSiDetail, nowMs = Date.now() }) {
   const { t } = useTranslation('atBerth')
   const breach = getEtcBreach(r, nowMs)
@@ -394,6 +406,20 @@ function AtBerthDetailPanel({ r, onOpenSiDetail, nowMs = Date.now() }) {
         </dd>
         <dt>{t('dtRemark')}</dt>
         <dd>{r.remark || r.remarks || '—'}</dd>
+        {commodityDecisionsFromRow(r).length > 0 ? (
+          <>
+            <dt>{t('qcDecision')}</dt>
+            <dd>
+              {commodityDecisionsFromRow(r).map((card) => (
+                <div key={card.commodityId} className="qc-decision-item">
+                  <span>{card.shortName || card.name}</span>
+                  <QcDecisionPill decision={card.decision} />
+                  {card.remark ? <span>{card.remark}</span> : null}
+                </div>
+              ))}
+            </dd>
+          </>
+        ) : null}
       </dl>
       {r.operationId ? (
         <AtBerthVesselHourlyRate
@@ -928,7 +954,7 @@ export default function AtBerthExecutions() {
                                   ) : null}
                                 </span>
                               ) : col.key === 'commodityQty' ? (
-                                renderCommodityQtyCell(r)
+                                commodityCell(r)
                               ) : (
                                 col.getValue(r)
                               )}
@@ -1109,7 +1135,7 @@ export default function AtBerthExecutions() {
                                       ) : null}
                                     </span>
                                   ) : col.key === 'commodityQty' ? (
-                                    renderCommodityQtyCell(r)
+                                    commodityCell(r)
                                   ) : (
                                     col.getValue(r)
                                   )}
@@ -1352,7 +1378,7 @@ export default function AtBerthExecutions() {
       </section>
 
       {shiftModal?.shiftRow ? (
-        <div className="modal-overlay" onClick={closeShiftModal} aria-hidden="true">
+        <StickyFormOverlay onClose={closeShiftModal}>
           <div
             className="modal"
             onClick={(ev) => ev.stopPropagation()}
@@ -1413,7 +1439,7 @@ export default function AtBerthExecutions() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       ) : null}
       <SiDetailModal
         isOpen={Boolean(siDetailId)}

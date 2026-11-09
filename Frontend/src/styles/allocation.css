@@ -2233,6 +2233,18 @@ select.allocation-table__filter {
   min-width: 6.5rem;
 }
 
+.allocation-table__multi-filter {
+  display: block;
+  width: 100%;
+  min-width: 8.5rem;
+}
+
+.allocation-table__multi-filter .dropdown-multi__trigger {
+  min-height: 0;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-xs);
+}
+
 .allocation-table__row {
   cursor: pointer;
   transition: background var(--duration-fast) var(--easing-default);
@@ -3834,6 +3846,25 @@ body:has(.clearance-page--embed) {
   border-color: rgba(148, 163, 184, 0.5);
 }
 
+.precheck-status-dot--qc-reject {
+  background: #a33b3b;
+  border-color: #a33b3b;
+}
+
+.precheck-status-dot--qc-out {
+  background: #9a6700;
+  border-color: #9a6700;
+}
+
+.precheck-checklist__qc {
+  display: flex;
+  max-width: 100%;
+}
+
+.precheck-checklist__qc .qc-decision-row {
+  width: 100%;
+}
+
 /* Pre-checking checklist rows */
 .precheck-checklist {
   display: grid;
@@ -4768,7 +4799,15 @@ body:has(.clearance-page--embed) {
 }
 
 .operation-activity-timeline__status {
+  white-space: normal;
+}
+
+.operation-activity-timeline__status-label {
   white-space: nowrap;
+}
+
+.operation-activity-timeline__qc {
+  margin-top: var(--spacing-1);
 }
 
 .operation-activity-timeline__remark {
@@ -5511,6 +5550,21 @@ body:has(.clearance-page--embed) {
   max-width: var(--sampling-input-width-palka);
 }
 
+.sampling-entry-block__grid--tank {
+  --sampling-input-width-palka: 12rem;
+}
+
+.sampling-entry-block__grid--palka .sample-ref-select,
+.sampling-entry-block__grid--palka .berthing-modal__field:first-child .sample-ref-select {
+  width: var(--sampling-input-width-palka);
+  max-width: min(16rem, 100%);
+  min-width: 10rem;
+}
+
+.sample-ref-select .dropdown-multi__trigger {
+  min-height: 2.25rem;
+}
+
 .sampling-entry-block__actions {
   justify-content: flex-start;
   margin-bottom: 0;
@@ -5901,6 +5955,23 @@ body:has(.clearance-page--embed) {
   overflow-x: auto;
 }
 
+.hourly-cargo-progress__row--override td {
+  background: #fffbf0;
+}
+
+.hourly-cargo-progress__override-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.45rem;
+  border: 1px solid #ffe082;
+  border-radius: 999px;
+  background: #fff8e1;
+  color: #8a3b00;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: help;
+}
+
 .hourly-cargo-progress__table {
   width: 100%;
   border-collapse: collapse;
@@ -6042,51 +6113,175 @@ body:has(.clearance-page--embed) {
 
 .at-berth-flow {
   margin-bottom: var(--spacing-3);
-  padding: 14px 16px;
+  padding: 12px 16px 10px;
 }
-.at-berth-flow__sub {
-  margin: 0 0 8px;
-  font-size: 12.5px;
-}
-.at-berth-flow__legend {
+.at-berth-flow__header {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  font-size: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
   margin-bottom: 8px;
 }
-.at-berth-flow__swatch {
-  display: inline-block;
-  width: 16px;
-  height: 3px;
-  margin-right: 4px;
-  vertical-align: middle;
-  border-radius: 2px;
+.at-berth-flow__heading { min-width: 0; flex: 1 1 auto; }
+.at-berth-flow .card__title { margin: 0; }
+.at-berth-flow__sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.at-berth-flow__swatch--load { background: #1e8a52; }
-.at-berth-flow__swatch--disc { background: #2d6fb8; }
-.at-berth-flow__swatch--std-load { background: transparent; border-top: 2px dashed #1e8a52; height: 0; }
-.at-berth-flow__swatch--std-disc { background: transparent; border-top: 2px dashed #2d6fb8; height: 0; }
 .at-berth-flow__insight {
-  margin: 8px 0 0;
+  margin: 0;
+  flex: 0 1 280px;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.35;
+  text-align: right;
 }
 .at-berth-flow__error { color: #c00; font-size: 13px; }
-.at-berth-rate-chart { width: 100%; }
-.at-berth-rate-chart__svg { width: 100%; height: auto; display: block; }
-.at-berth-rate-chart__grid { stroke: #eceee9; stroke-width: 1; }
-.at-berth-rate-chart__axis { stroke: #c5cbd3; stroke-width: 1; }
-.at-berth-rate-chart__tick,
-.at-berth-rate-chart__xtick,
-.at-berth-rate-chart__ylabel { fill: #5b6675; font-size: 11px; }
-.at-berth-rate-chart__line { stroke-width: 2; }
+.at-berth-rate-chart { position: relative; width: 100%; }
+.at-berth-rate-chart__row,
+.at-berth-rate-chart__axis-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 120px) 36px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+}
+.at-berth-rate-chart__row + .at-berth-rate-chart__row { margin-top: 8px; }
+.at-berth-rate-chart__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-charcoal, #243040);
+  line-height: 1.2;
+}
+.at-berth-rate-chart__swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.at-berth-rate-chart__swatch--load { background: #1e8a52; }
+.at-berth-rate-chart__swatch--disc { background: #2d6fb8; }
+.at-berth-rate-chart__std-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #5b6675;
+}
+.at-berth-rate-chart__std-mark {
+  width: 14px;
+  border-top: 1.5px dashed currentColor;
+}
+.at-berth-rate-chart__std-mark--load { color: #1e8a52; }
+.at-berth-rate-chart__std-mark--disc { color: #2d6fb8; }
+.at-berth-rate-chart__yticks {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  font-size: 10px;
+  line-height: 1;
+  color: #5b6675;
+}
+.at-berth-rate-chart__plot { position: relative; min-width: 0; }
+.at-berth-rate-chart__svg { width: 100%; height: 100%; display: block; }
+.at-berth-rate-chart__overnight { fill: rgba(47, 72, 110, 0.07); }
+.at-berth-rate-chart__overnight-label {
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  font-size: 10px;
+  line-height: 1;
+  color: #5b6675;
+  pointer-events: none;
+}
+.at-berth-rate-chart__grid { stroke: #eceee9; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.at-berth-rate-chart__axis { stroke: #c5cbd3; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.at-berth-rate-chart__area--load { fill: rgba(30, 138, 82, 0.14); }
+.at-berth-rate-chart__area--disc { fill: rgba(45, 111, 184, 0.14); }
+.at-berth-rate-chart__line {
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
 .at-berth-rate-chart__line--load { stroke: #1e8a52; }
 .at-berth-rate-chart__line--disc { stroke: #2d6fb8; }
-.at-berth-rate-chart__std { stroke-width: 1.5; stroke-dasharray: 5 4; }
+.at-berth-rate-chart__std { stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 .at-berth-rate-chart__std--load { stroke: #1e8a52; }
 .at-berth-rate-chart__std--disc { stroke: #2d6fb8; }
+.at-berth-rate-chart__guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #94a3b8;
+  pointer-events: none;
+}
+.at-berth-rate-chart__dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  pointer-events: none;
+}
+.at-berth-rate-chart__dot--load { background: #1e8a52; }
+.at-berth-rate-chart__dot--disc { background: #2d6fb8; }
+.at-berth-rate-chart__unit {
+  font-size: 10px;
+  color: #5b6675;
+  text-align: right;
+}
+.at-berth-rate-chart__xaxis { position: relative; height: 16px; }
+.at-berth-rate-chart__xtick {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  line-height: 1;
+  color: #5b6675;
+}
+.at-berth-rate-chart__xtick--start { transform: none; }
+.at-berth-rate-chart__xtick--end { transform: translateX(-100%); }
+.at-berth-rate-chart__tip {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  min-width: 148px;
+  max-width: 220px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid #d5dbe3;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(20, 28, 40, 0.12);
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.at-berth-rate-chart__tip-hour { font-weight: 600; margin-bottom: 2px; }
+.at-berth-rate-chart__tip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.at-berth-rate-chart__tip-rate { font-variant-numeric: tabular-nums; font-weight: 600; }
+.at-berth-rate-chart__tip-n { color: #5b6675; font-size: 11px; }
+@media (max-width: 720px) {
+  .at-berth-flow__header { flex-direction: column; }
+  .at-berth-flow__insight { flex-basis: auto; text-align: left; }
+  .at-berth-flow__sub { white-space: normal; }
+}
 .at-berth-vessel-rate { margin-top: 16px; }
 .at-berth-vessel-rate__title { font-size: 13px; margin: 0 0 8px; }
 
@@ -6290,6 +6485,23 @@ body:has(.clearance-page--embed) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.clearance-pagination__page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-steel);
+}
+
+.clearance-pagination__page-size select {
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg, #fff);
 }
 
 .clearance-date-range-filter {
@@ -6691,6 +6903,35 @@ body:has(.clearance-page--embed) {
   line-height: 1.4;
 }
 
+.master-company-directory__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.master-company-directory__chevron {
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.master-company-port-list {
+  list-style: none;
+  margin: 0 0 var(--spacing-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .master-rates-chip {
   display: inline-block;
   margin: 0 0 var(--spacing-3);
@@ -6914,6 +7155,76 @@ body:has(.clearance-page--embed) {
   background: var(--color-bg-subtle, #f5f5f5);
 }
 
+.dropdown-multi__option.is-disabled,
+.dropdown-multi__option.is-disabled:hover {
+  color: var(--color-text-steel);
+  background: none;
+  cursor: not-allowed;
+}
+
+.dropdown-multi__option.is-disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+.qc-spec-param-table {
+  margin-top: var(--spacing-2);
+}
+
+.qc-spec-param-table .modal__input {
+  min-width: 0;
+}
+
+.qc-spec-param-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.qc-spec-param-actions .btn {
+  min-height: 28px;
+  padding: 2px 8px;
+}
+
+.qc-spec-add-row,
+.qc-spec-custom-row {
+  display: grid;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+  align-items: center;
+}
+
+.qc-spec-add-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.qc-spec-custom-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 5.5rem minmax(0, 1.2fr) auto;
+}
+
+.qc-field__value {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.qc-field__value .qc-input,
+.qc-field__value .berthing-modal__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.qc-field__unit,
+.sampling-col-unit {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+}
+
+.sampling-col-name,
+.sampling-col-unit {
+  display: block;
+}
+
 .dropdown-multi__option input[type="checkbox"] {
   width: 1rem;
   height: 1rem;
@@ -7019,6 +7330,40 @@ body:has(.clearance-page--embed) {
   padding: var(--spacing-3);
   font-size: var(--font-size-small);
   color: var(--color-text-steel);
+}
+
+.searchable-select__group {
+  padding: var(--spacing-2) var(--spacing-2) var(--spacing-1);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-steel);
+}
+
+.searchable-select__footer {
+  flex-shrink: 0;
+  padding: var(--spacing-2);
+  border-top: 1px solid var(--color-border-medium);
+}
+
+.searchable-select__add {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-primary);
+  background: var(--color-bg-subtle, #f4f6f8);
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.searchable-select__add:hover,
+.searchable-select__add:focus-visible {
+  background: #fff;
+  outline: none;
 }
 
 .daily-activities-report__field {
@@ -7951,16 +8296,95 @@ tr.cargo-schedule-behind > td:first-child {
   border: 1px dashed rgba(100, 116, 139, 0.85);
 }
 
-/* ---- Layout: Gantt beside the Unallocated rail ---- */
-.jetty-schedule-gantt__layout {
+/* ---- Chart + Unallocated rail: rail outside horizontal scroll, aligned with jetty rows ---- */
+.jetty-schedule-gantt__chart-with-rail {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-3, 12px);
+  min-width: 0;
+  height: max-content;
 }
 
-.jetty-schedule-gantt__layout > .jetty-schedule-gantt__export-area {
+.jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
+  height: max-content;
+  max-height: min(70vh, 720px);
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
+  flex: 0 0 264px;
+  width: 264px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--gantt-matrix-header-h, 40px);
+  height: var(--gantt-matrix-body-h, 240px);
+  max-height: var(--gantt-matrix-body-h, 240px);
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid rgba(var(--berth-new-rgb), 0.35);
+  border-radius: 8px;
+  background: rgba(var(--berth-new-rgb), 0.04);
+  align-self: flex-start;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  align-items: stretch;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
+  margin-top: var(--gantt-matrix-header-h, 40px);
+  height: var(--gantt-matrix-body-h, 240px);
+  max-height: var(--gantt-matrix-body-h, 240px);
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail > .unallocated-rail.unallocated-rail--collapsed {
+  flex: 0 0 44px;
+  width: 44px;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  padding: 6px 4px;
+  overflow: hidden;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__header,
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__hint,
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__empty {
+  flex-shrink: 0;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  gap: 5px;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__card {
+  padding: 5px 8px;
+  gap: 1px;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__meta {
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .unallocated-rail {
@@ -7976,8 +8400,10 @@ tr.cargo-schedule-behind > td:first-child {
 }
 
 .unallocated-rail--collapsed {
-  flex-basis: 48px;
-  width: 48px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: auto;
+  max-height: none;
   overflow: hidden;
 }
 
@@ -8055,9 +8481,9 @@ tr.cargo-schedule-behind > td:first-child {
   text-align: left;
   font: inherit;
   color: rgb(var(--berth-new-text));
-  background: rgba(var(--berth-new-rgb), 0.12);
-  border: 1px solid rgba(var(--berth-new-rgb), 0.7);
-  border-left-width: 4px;
+  background: rgba(var(--berth-new-rgb), 0.22);
+  border: 1px solid rgba(var(--berth-new-rgb), 0.85);
+  border-left: 4px solid rgb(var(--berth-new-rgb));
   border-radius: 6px;
   cursor: pointer;
 }
@@ -8079,60 +8505,144 @@ tr.cargo-schedule-behind > td:first-child {
   outline-offset: 2px;
 }
 
+.unallocated-rail__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
 .unallocated-rail__name {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 700;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unallocated-rail__purpose {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.unallocated-rail__purpose--unload {
+  background: rgba(var(--berth-unload-rgb), 0.16);
+  color: rgb(var(--berth-unload-text));
+  border: 1px solid rgba(var(--berth-unload-rgb), 0.55);
+}
+
+.unallocated-rail__purpose--load {
+  background: rgba(var(--berth-load-rgb), 0.16);
+  color: rgb(var(--berth-load-text));
+  border: 1px solid rgba(var(--berth-load-rgb), 0.55);
 }
 
 .unallocated-rail__meta {
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
-.unallocated-rail__chips {
+.unallocated-rail__eta-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
-  margin-top: 4px;
+  min-width: 0;
 }
 
-.unallocated-rail__chip {
-  padding: 0 6px;
+.unallocated-rail__eta {
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.unallocated-rail__reason {
+  flex: 0 0 auto;
+  padding: 0 5px;
   border-radius: 999px;
-  background: rgb(var(--berth-new-rgb));
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  background: rgba(var(--berth-new-rgb), 0.14);
+  color: rgb(var(--berth-new-text));
+  border: 1px solid rgba(var(--berth-new-rgb), 0.55);
 }
 
-/* Full view (popout): layout fills the window; the rail scrolls on its own beside the Gantt. */
-.jetty-schedule-gantt--popout .jetty-schedule-gantt__layout {
-  flex: 1;
+/* Berthing Plan main tab: tighter filter row (full view already uses popout rules). */
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters {
+  flex-shrink: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-2, 8px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+  gap: var(--spacing-2, 8px);
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filter-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filter-field label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__date-input {
+  width: 8.75rem;
+  height: 32px;
+  padding: 2px 8px;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset,
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__export,
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__fit,
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__create-plan {
+  min-height: 32px;
+  height: 32px;
+  padding: 2px 10px;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__intro:not(:has(.jetty-schedule-gantt__error)):not(
+    :has(.jetty-schedule-gantt__notice)
+  ) {
+  display: none;
+  margin: 0;
   min-height: 0;
-  align-items: stretch;
 }
 
-.jetty-schedule-gantt--popout .unallocated-rail {
-  max-height: none;
-  align-self: stretch;
-}
-
-/* Narrow screens: rail goes below the Gantt instead of beside it. */
+/* Narrow screens: rail stacks under the chart. */
 @media (max-width: 1100px) {
-  .jetty-schedule-gantt__layout {
+  .jetty-schedule-gantt__chart-with-rail {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .unallocated-rail,
-  .unallocated-rail--collapsed {
+  .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
     flex-basis: auto;
     width: 100%;
+    margin-top: 0;
     max-height: 320px;
   }
 
-  .jetty-schedule-gantt--popout .unallocated-rail {
+  .jetty-schedule-gantt__chart-with-rail > .unallocated-rail.unallocated-rail--collapsed {
+    width: 100%;
+    flex-basis: auto;
+    height: auto;
+    max-height: none;
+  }
+
+  .jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .unallocated-rail:not(.unallocated-rail--collapsed) {
     flex: 0 0 auto;
     max-height: 240px;
   }

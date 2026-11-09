@@ -1,0 +1,243 @@
+/* QC Sampling desktop: split workspace inside the standard Layout (1024px and wider).
+   Reuses the .operator-mobile token and control scope from operator-mobile.css / qc-mobile.css. */
+
+/* ---- Entry body wrappers (neutral on phones: columns flatten into the same single column) ---- */
+.operator-mobile .qc-entry__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-gap);
+}
+
+.operator-mobile .qc-entry__col {
+  display: contents;
+}
+
+/* ---- Workspace frame ---- */
+/* Pin the app frame to the viewport so each pane scrolls on its own instead of the whole page. */
+.app:has(.qc-workspace) {
+  height: 100dvh;
+  min-height: 0;
+}
+
+.content:has(> .qc-workspace) {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+.operator-mobile.qc-workspace {
+  --op-tap-min: 40px;
+
+  flex: 1;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(300px, 28%, 420px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.qc-workspace__queue,
+.qc-workspace__entry {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.qc-workspace__queue {
+  background: var(--color-bg-white);
+  border-right: 1px solid var(--color-border-light);
+}
+
+.qc-workspace__entry {
+  container: qc-entry / inline-size;
+}
+
+/* ---- Queue pane ---- */
+.operator-mobile .qc-queue-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.operator-mobile .qc-queue-panel__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  padding: var(--spacing-4);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.operator-mobile .qc-queue-panel__title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-semibold);
+}
+
+.operator-mobile .qc-queue-panel__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-3);
+}
+
+.operator-mobile.qc-workspace .qc-filter-chip {
+  min-height: 36px;
+}
+
+.operator-mobile .qc-row-list,
+.operator-mobile .qc-row__children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.operator-mobile .qc-row__children {
+  margin: var(--spacing-2) 0 0 var(--spacing-4);
+}
+
+.operator-mobile .qc-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-1);
+  padding: var(--spacing-3);
+  text-align: left;
+  background: var(--color-bg-white);
+  color: var(--color-text-charcoal);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  cursor: pointer;
+}
+
+.operator-mobile .qc-row:hover {
+  background: var(--color-bg-lighter);
+  border-color: var(--color-border-medium);
+}
+
+.operator-mobile .qc-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.operator-mobile .qc-row--selected {
+  background: var(--color-bg-lighter);
+  border-color: var(--color-primary);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.operator-mobile .qc-row--holds {
+  border-color: var(--color-border-medium);
+}
+
+.operator-mobile .qc-row__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.operator-mobile .qc-row__name {
+  min-width: 0;
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.operator-mobile .qc-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1) var(--spacing-3);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+/* ---- Entry pane ---- */
+.operator-mobile.qc-workspace .qc-entry {
+  max-width: none;
+  margin: 0;
+}
+
+.operator-mobile.qc-workspace .qc-entry__scroll {
+  padding: var(--spacing-5);
+}
+
+.operator-mobile.qc-workspace .qc-strip {
+  top: calc(-1 * var(--spacing-5));
+}
+
+.operator-mobile .qc-workspace__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-6);
+  text-align: center;
+}
+
+.operator-mobile .qc-workspace__empty-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.operator-mobile.qc-workspace .qc-save-bar {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--spacing-3);
+}
+
+.operator-mobile.qc-workspace .qc-save-bar__actions {
+  grid-template-columns: repeat(2, auto);
+}
+
+/* Edit sheet becomes a centred dialog instead of a thumb-reach bottom sheet. */
+.qc-workspace .qc-sheet-backdrop {
+  align-items: center;
+  padding: var(--spacing-4);
+}
+
+.qc-workspace .qc-sheet {
+  max-width: 480px;
+  border-radius: var(--radius-md);
+}
+
+/* Two columns once the entry pane itself is wide enough (it shares the screen with the queue). */
+@container qc-entry (min-width: 760px) {
+  .operator-mobile .qc-entry__body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-4);
+    align-items: start;
+  }
+
+  .operator-mobile .qc-entry__col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--op-gap);
+    min-width: 0;
+  }
+
+  .operator-mobile .qc-entry__body--cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .operator-mobile .qc-entry__body--cards .qc-commodity-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    align-items: start;
+  }
+}

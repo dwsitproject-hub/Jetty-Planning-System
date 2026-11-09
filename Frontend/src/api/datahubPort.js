@@ -10,6 +10,10 @@ export function startPortSyncRun() {
   return apiPost(`${BASE}/runs`, {}, 120000)
 }
 
+export function startPortRecordSync(localId) {
+  return apiPost(`${BASE}/records`, { localId }, 120000)
+}
+
 export function fetchPortSyncRun(runId) {
   return apiGet(`${BASE}/runs/${runId}`)
 }

@@ -25,6 +25,14 @@ assert(
   'same as vessel case insensitive'
 );
 assert(validateSiReferenceForBerthing('SI/EUP/2026/1', 'MV TEST') == null, 'valid ref');
+assert(
+  validateSiReferenceForBerthing('MV TEST NO SI', 'mv test') === SI_REFERENCE_BERTHING_ERROR,
+  'vessel name plus NO SI'
+);
+assert(
+  validateSiReferenceForBerthing('MV TEST SI', 'MV TEST') === SI_REFERENCE_BERTHING_ERROR,
+  'vessel name plus SI'
+);
 assert(isSiReferenceValidForBerthing('SI/EUP/2026/1', 'MV TEST'), 'is valid helper');
 
 assert(

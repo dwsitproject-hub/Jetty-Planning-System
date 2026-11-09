@@ -9,19 +9,25 @@ import { fetchSiLookups } from '../api/siLookups'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/datahub-sync.css'
-import { MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
+import { MAX_COMMODITY_GROUP_CHARS, MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import MasterTablePagination from '../components/MasterTablePagination.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import { useMasterTablePagination } from '../hooks/useMasterTablePagination.js'
 import {
   formatMasterCreatedLine,
   formatMasterLastUpdatedLine,
   MASTER_AUDIT_COLUMNS,
 } from '../utils/formatMasterAudit.js'
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import DataHubRecordSyncButton from '../components/DataHubRecordSyncButton.jsx'
 import AppToast from '../components/AppToast.jsx'
 import { createSiDataHubSyncApi, DATAHUB_SI_ENTITY_META } from '../api/datahubSiMaster.js'
+
+const COMMODITY_PAGE_SIZE_OPTIONS = [10, 20, 50]
 
 const RATE_METRIC_OPTIONS = [
   { value: 'KLPH', label: 'KLPH' },
@@ -69,12 +75,15 @@ export default function MasterSiLookup({
   const [formClearUnloadingRate, setFormClearUnloadingRate] = useState(false)
   const [editingHadUnloadingRate, setEditingHadUnloadingRate] = useState(false)
   const [formCommodityType, setFormCommodityType] = useState('Liquid')
+  const [formHubType, setFormHubType] = useState('')
   const [formShortName, setFormShortName] = useState('')
+  const [formCommodityGroup, setFormCommodityGroup] = useState('')
   const [formKlToMtFactor, setFormKlToMtFactor] = useState('')
   const [formDefaultMetricId, setFormDefaultMetricId] = useState('')
   const [formLongName, setFormLongName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formHubCode, setFormHubCode] = useState('')
+  const [formMaterialCode, setFormMaterialCode] = useState('')
   const [formIsActive, setFormIsActive] = useState(true)
   const [metricOptions, setMetricOptions] = useState([])
 
@@ -100,9 +109,16 @@ export default function MasterSiLookup({
     if (isCommodityMaster) {
       cols.push({
         key: 'shortName',
-        label: <DataHubFieldCue>Short commodity name</DataHubFieldCue>,
+        label: 'Short commodity name',
         labelText: 'Short commodity name',
         getSortValue: (it) => (it.shortName || '').toLowerCase(),
+      })
+      cols.push({
+        key: 'commodityGroup',
+        label: 'Commodity group',
+        labelText: 'Commodity group',
+        getSortValue: (it) => (it.commodityGroup || '').toLowerCase(),
+        getFilterValue: (it) => it.commodityGroup || '',
       })
     }
     cols.push({
@@ -123,6 +139,15 @@ export default function MasterSiLookup({
         getSortValue: (it) => (it.hubCode || '').toLowerCase(),
         getFilterValue: (it) => it.hubCode || '',
       })
+      if (isCommodityMaster) {
+        cols.push({
+          key: 'materialCode',
+          label: <DataHubFieldCue>Material code</DataHubFieldCue>,
+          labelText: 'Material code',
+          getSortValue: (it) => (it.materialCode || '').toLowerCase(),
+          getFilterValue: (it) => it.materialCode || '',
+        })
+      }
       cols.push({
         key: 'isActive',
         label: 'Active',
@@ -154,9 +179,17 @@ export default function MasterSiLookup({
     if (isCommodityMaster) {
       cols.push({
         key: 'commodityType',
-        label: <DataHubFieldCue>Type</DataHubFieldCue>,
+        label: 'Type',
         labelText: 'Type',
-        getSortValue: (it) => (it.commodityType === 'Solid' ? 'Solid' : 'Liquid').toLowerCase(),
+        getSortValue: (it) =>
+          (it.commodityType === 'Solid' ? 'solid' : it.commodityType === 'Liquid' ? 'liquid' : ''),
+      })
+      cols.push({
+        key: 'hubType',
+        label: <DataHubFieldCue>DataHub Type</DataHubFieldCue>,
+        labelText: 'DataHub Type',
+        getSortValue: (it) => (it.hubType || '').toLowerCase(),
+        getFilterValue: (it) => it.hubType || '',
       })
       cols.push({
         key: 'klToMtFactor',
@@ -226,8 +259,25 @@ export default function MasterSiLookup({
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     items,
     tableColumns,
-    { key: isCommodityMaster ? 'shortName' : 'value', dir: 'asc' }
+    { key: isCommodityMaster ? 'shortName' : 'value', dir: 'asc' },
+    isCommodityMaster ? { isActive: 'Yes' } : undefined
   )
+  const [commodityPageSize, setCommodityPageSize] = useState(20)
+  const commodityPaginationResetKey = useMemo(
+    () => JSON.stringify({ filters, sortKey: sortState.key, sortDir: sortState.dir, commodityPageSize }),
+    [filters, sortState.key, sortState.dir, commodityPageSize]
+  )
+  const {
+    page: commodityPage,
+    setPage: setCommodityPage,
+    totalPages: commodityTotalPages,
+    pagedRows: pagedCommodities,
+    range: commodityPaginationRange,
+  } = useMasterTablePagination(isCommodityMaster ? displayRows : [], {
+    pageSize: commodityPageSize,
+    resetKey: commodityPaginationResetKey,
+  })
+  const tableRows = isCommodityMaster ? pagedCommodities : displayRows
 
   const load = useCallback(async () => {
     setError(null)
@@ -248,6 +298,7 @@ export default function MasterSiLookup({
   }, [load])
 
   const [syncing, setSyncing] = useState(false)
+  const [syncingRecordId, setSyncingRecordId] = useState(null)
   const [applying, setApplying] = useState(false)
   const [syncError, setSyncError] = useState(null)
   const [review, setReview] = useState(null)
@@ -290,20 +341,57 @@ export default function MasterSiLookup({
       const resp = await dataHubSyncApi.startSyncRun()
       await loadLatestRun()
       if (resp?.noChanges) {
+        const skipped = resp?.summary?.skippedNotUse ?? 0
         setToast({
-          message: 'DataHub matches JPS — nothing new or changed to review.',
+          message:
+            skipped > 0
+              ? `DataHub matches JPS — nothing new or changed. ${skipped} hub ${dataHubUiMeta?.recordNoun ?? 'records'} skipped (marked “not use”).`
+              : 'DataHub matches JPS — nothing new or changed to review.',
           variant: 'success',
         })
         return
       }
       const run = resp?.run
-      if (run?.id) await openReview(run.id)
+      if (run?.id) {
+        const detail = await dataHubSyncApi.fetchSyncRun(run.id)
+        const skipped = resp?.summary?.skippedNotUse ?? 0
+        const nameConflictCount = resp?.summary?.nameConflictCount ?? 0
+        if (detail?.run && (skipped > 0 || nameConflictCount > 0)) {
+          detail.run = { ...detail.run, skippedNotUse: skipped, nameConflictCount }
+        }
+        setReview(detail)
+      }
     } catch (e) {
       setError(e?.message || 'DataHub sync failed')
     } finally {
       setSyncing(false)
     }
-  }, [dataHubSyncApi, loadLatestRun, openReview])
+  }, [dataHubSyncApi, dataHubUiMeta?.recordNoun, loadLatestRun])
+
+  const handleRecordSync = useCallback(async (row) => {
+    if (!dataHubSyncApi) return
+    setSyncing(true)
+    setSyncingRecordId(row.id)
+    setError(null)
+    setSyncError(null)
+    try {
+      const resp = await dataHubSyncApi.startRecordSync(row.id)
+      await loadLatestRun()
+      if (resp?.noChanges) {
+        setToast({ message: 'This record already matches DataHub.', variant: 'success' })
+        return
+      }
+      if (resp?.run?.id) {
+        const detail = await dataHubSyncApi.fetchSyncRun(resp.run.id)
+        setReview(detail)
+      }
+    } catch (e) {
+      setError(e?.message || 'DataHub sync failed')
+    } finally {
+      setSyncing(false)
+      setSyncingRecordId(null)
+    }
+  }, [dataHubSyncApi, loadLatestRun])
 
   const handleApplySync = useCallback(
     async (itemIds) => {
@@ -312,6 +400,14 @@ export default function MasterSiLookup({
       setSyncError(null)
       try {
         const result = await dataHubSyncApi.applySyncRun(review.run.id, itemIds)
+        if (result.partial) {
+          setSyncError(
+            `${result.failed} row(s) failed; ${result.applied} applied. Fix or deselect failed rows and apply again.`,
+          )
+          setReview(await dataHubSyncApi.fetchSyncRun(review.run.id))
+          await Promise.all([load(), loadLatestRun()])
+          return
+        }
         setToast({
           message: `Applied DataHub sync: ${result.created} added, ${result.updated} updated.`,
           variant: 'success',
@@ -361,11 +457,14 @@ export default function MasterSiLookup({
     setFormLongName('')
     setFormDescription('')
     setFormHubCode('')
+    setFormMaterialCode('')
     setFormIsActive(true)
     setFormShortName('')
+    setFormCommodityGroup('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
     setFormCommodityType('Liquid')
+    setFormHubType('')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
     setFormClearLoadingRate(false)
@@ -383,11 +482,16 @@ export default function MasterSiLookup({
     setFormLongName(item.longName ?? '')
     setFormDescription(item.description ?? '')
     setFormHubCode(item.hubCode ?? '')
+    setFormMaterialCode(item.materialCode ?? '')
     setFormIsActive(item.isActive !== false)
     setFormShortName(item.shortName ?? '')
+    setFormCommodityGroup(item.commodityGroup ?? '')
     setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
     setFormDefaultMetricId(item.defaultMetricId != null ? String(item.defaultMetricId) : '')
-    setFormCommodityType(item.commodityType === 'Solid' ? 'Solid' : 'Liquid')
+    setFormCommodityType(
+      item.commodityType === 'Solid' ? 'Solid' : item.commodityType === 'Liquid' ? 'Liquid' : '',
+    )
+    setFormHubType(item.hubType ?? '')
     const lr = item?.portRates?.loading ?? null
     const ur = item?.portRates?.unloading ?? null
 
@@ -411,11 +515,14 @@ export default function MasterSiLookup({
     setFormLongName('')
     setFormDescription('')
     setFormHubCode('')
+    setFormMaterialCode('')
     setFormIsActive(true)
     setFormShortName('')
+    setFormCommodityGroup('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
     setFormCommodityType('Liquid')
+    setFormHubType('')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
     setFormClearLoadingRate(false)
@@ -433,14 +540,29 @@ export default function MasterSiLookup({
     const value = normalizeValue(apiType, formValue)
     if (!value) return
 
+    const shortName = isCommodityMaster ? (formShortName || '').trim().toUpperCase() : ''
+    const commodityGroup = isCommodityMaster ? (formCommodityGroup || '').trim() : ''
+
     if (isCommodityMaster) {
-      if (formCommodityType !== 'Solid' && formCommodityType !== 'Liquid') {
+      const hasJpsType = formCommodityType === 'Solid' || formCommodityType === 'Liquid'
+      if (!hasJpsType && formIsActive) {
+        setError('Set Type to Solid or Liquid before activating this commodity.')
+        return
+      }
+      if (!hasJpsType && editingId == null) {
         setError('Commodity type must be Solid or Liquid.')
         return
       }
-      const shortName = (formShortName || '').trim().toUpperCase()
-      if (!shortName) {
+      if (!shortName && formIsActive) {
+        setError('Set short commodity name before activating this commodity.')
+        return
+      }
+      if (!shortName && editingId == null) {
         setError('Short commodity name is required.')
+        return
+      }
+      if (commodityGroup.length > MAX_COMMODITY_GROUP_CHARS) {
+        setError(`Commodity group must be at most ${MAX_COMMODITY_GROUP_CHARS} characters.`)
         return
       }
       if (formKlToMtFactor.trim() !== '') {
@@ -502,10 +624,14 @@ export default function MasterSiLookup({
         payload.isActive = formIsActive !== false
       }
       if (isCommodityMaster) {
-        payload.commodityType = formCommodityType
-        payload.shortName = (formShortName || '').trim().toUpperCase()
+        if (formCommodityType === 'Solid' || formCommodityType === 'Liquid') {
+          payload.commodityType = formCommodityType
+        }
+        if (shortName) payload.shortName = shortName
+        payload.commodityGroup = commodityGroup || null
         payload.klToMtFactor = formKlToMtFactor.trim() === '' ? null : Number(formKlToMtFactor)
         payload.defaultMetricId = formDefaultMetricId.trim() === '' ? null : Number(formDefaultMetricId)
+        payload.materialCode = (formMaterialCode || '').trim() || null
       }
       if (enableStandardRateFields) {
         if (formClearLoadingRate) {
@@ -569,6 +695,7 @@ export default function MasterSiLookup({
     isCommodityMaster,
     formCommodityType,
     formShortName,
+    formCommodityGroup,
     formKlToMtFactor,
     formDefaultMetricId,
     hasLongName,
@@ -652,7 +779,7 @@ export default function MasterSiLookup({
                   onClick={handleDataHubSync}
                   disabled={!canDoEdit || loading || syncing}
                 >
-                  {syncing ? 'Reading DataHub…' : 'Sync from DataHub'}
+                  {syncing && syncingRecordId == null ? 'Reading DataHub…' : 'Sync from DataHub'}
                 </button>
                 {stagedRun && (
                   <button
@@ -683,7 +810,7 @@ export default function MasterSiLookup({
         ) : items.length === 0 ? (
           <p className="text-steel">No entries. Click Add {valueLabel} to add one.</p>
         ) : (
-          <div className="table-wrap">
+          <div className={`table-wrap table-wrap--pin-actions${isDataHubMaster ? '' : ' table-wrap--pin-actions--pair'}`}>
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -692,57 +819,24 @@ export default function MasterSiLookup({
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
-                {displayRows.map((it) => (
+                {tableRows.map((it) => (
                   <tr key={it.id} className="allocation-table__row">
-                    {isCommodityMaster && (
-                      <td>
-                        <strong>{it.shortName ?? '—'}</strong>
-                      </td>
-                    )}
-                    <td>{it.value ?? '—'}</td>
-                    {isDataHubMaster && (
-                      <td className="text-steel">
-                        {it.hubCode ? (
-                          it.hubCode
-                        ) : (
-                          <MasterSourceBadge kind="local" />
-                        )}
-                      </td>
-                    )}
-                    {isDataHubMaster && (
-                      <td className="text-steel">{it.isActive === false ? 'No' : 'Yes'}</td>
-                    )}
-                    {hasLongName && (
-                      <td className="text-steel">{it.longName || '—'}</td>
-                    )}
-                    {isTermMaster && (
-                      <td className="text-steel">{it.description || '—'}</td>
-                    )}
-                    {isCommodityMaster && (
-                      <td>{it.commodityType === 'Solid' ? 'Solid' : 'Liquid'}</td>
-                    )}
-                    {isCommodityMaster && (
-                      <td>{it.klToMtFactor != null ? it.klToMtFactor : '—'}</td>
-                    )}
-                    {isCommodityMaster && (
-                      <td>{it.defaultMetricCode ?? '—'}</td>
-                    )}
-                    {enableStandardRateFields && (
-                      <>
-                        <td>{it?.portRates?.loading != null ? it.portRates.loading.rate : '—'}</td>
-                        <td>{it?.portRates?.loading != null ? it.portRates.loading.rateMetric : '—'}</td>
-                        <td>{it?.portRates?.unloading != null ? it.portRates.unloading.rate : '—'}</td>
-                        <td>{it?.portRates?.unloading != null ? it.portRates.unloading.rateMetric : '—'}</td>
-                      </>
-                    )}
-                    <td className="text-steel">{formatMasterCreatedLine(it)}</td>
-                    <td className="text-steel">{formatMasterLastUpdatedLine(it)}</td>
                     <td className="allocation-table__action-col">
-                      <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                      <div className="allocation-table__action-btns">
+                        {isDataHubMaster && (
+                          <DataHubRecordSyncButton
+                            hubCode={it.hubCode}
+                            canEdit={canDoEdit}
+                            busy={syncing}
+                            syncing={syncingRecordId === it.id}
+                            onClick={() => handleRecordSync(it)}
+                          />
+                        )}
                         <button
                           type="button"
                           className="btn btn--small btn--secondary"
@@ -765,6 +859,64 @@ export default function MasterSiLookup({
                         )}
                       </div>
                     </td>
+                    {isCommodityMaster && (
+                      <td>
+                        <strong>{it.shortName ?? '—'}</strong>
+                      </td>
+                    )}
+                    {isCommodityMaster && (
+                      <td>{it.commodityGroup || '—'}</td>
+                    )}
+                    <td>{it.value ?? '—'}</td>
+                    {isDataHubMaster && (
+                      <td className="text-steel">
+                        {it.hubCode ? (
+                          it.hubCode
+                        ) : (
+                          <MasterSourceBadge kind="local" />
+                        )}
+                      </td>
+                    )}
+                    {isCommodityMaster && isDataHubMaster && (
+                      <td className="text-steel">{it.materialCode || '—'}</td>
+                    )}
+                    {isDataHubMaster && (
+                      <td className="text-steel">{it.isActive === false ? 'No' : 'Yes'}</td>
+                    )}
+                    {hasLongName && (
+                      <td className="text-steel">{it.longName || '—'}</td>
+                    )}
+                    {isTermMaster && (
+                      <td className="text-steel">{it.description || '—'}</td>
+                    )}
+                    {isCommodityMaster && (
+                      <td>
+                        {it.commodityType === 'Solid'
+                          ? 'Solid'
+                          : it.commodityType === 'Liquid'
+                            ? 'Liquid'
+                            : '—'}
+                      </td>
+                    )}
+                    {isCommodityMaster && (
+                      <td className="text-steel">{it.hubType || '—'}</td>
+                    )}
+                    {isCommodityMaster && (
+                      <td>{it.klToMtFactor != null ? it.klToMtFactor : '—'}</td>
+                    )}
+                    {isCommodityMaster && (
+                      <td>{it.defaultMetricCode ?? '—'}</td>
+                    )}
+                    {enableStandardRateFields && (
+                      <>
+                        <td>{it?.portRates?.loading != null ? it.portRates.loading.rate : '—'}</td>
+                        <td>{it?.portRates?.loading != null ? it.portRates.loading.rateMetric : '—'}</td>
+                        <td>{it?.portRates?.unloading != null ? it.portRates.unloading.rate : '—'}</td>
+                        <td>{it?.portRates?.unloading != null ? it.portRates.unloading.rateMetric : '—'}</td>
+                      </>
+                    )}
+                    <td className="text-steel">{formatMasterCreatedLine(it)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(it)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -774,12 +926,24 @@ export default function MasterSiLookup({
                 No entries match the current filters.
               </p>
             )}
+            {isCommodityMaster && (
+              <MasterTablePagination
+                range={commodityPaginationRange}
+                page={commodityPage}
+                totalPages={commodityTotalPages}
+                onPageChange={setCommodityPage}
+                ariaLabel="Commodity list pages"
+                pageSize={commodityPageSize}
+                pageSizeOptions={COMMODITY_PAGE_SIZE_OPTIONS}
+                onPageSizeChange={setCommodityPageSize}
+              />
+            )}
           </div>
         )}
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal}>
+        <StickyFormOverlay onClose={closeModal}>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -823,8 +987,26 @@ export default function MasterSiLookup({
             )}
             {isCommodityMaster && (
               <div className="modal__section">
+                <label htmlFor="si-commodity-material-code" className="modal__label">
+                  <DataHubFieldCue>Material code</DataHubFieldCue>{' '}
+                  <span className="text-steel">— optional</span>
+                </label>
+                <input
+                  id="si-commodity-material-code"
+                  type="text"
+                  className="modal__input"
+                  value={formMaterialCode}
+                  onChange={(e) => setFormMaterialCode(e.target.value)}
+                  placeholder="e.g. 100001"
+                  disabled={!canDoEdit}
+                />
+              </div>
+            )}
+            {isCommodityMaster && (
+              <div className="modal__section">
                 <label htmlFor="si-commodity-short-name" className="modal__label">
-                  {isDataHubMaster ? <DataHubFieldCue>Short commodity name</DataHubFieldCue> : 'Short commodity name'}
+                  Short commodity name{' '}
+                  <span className="text-steel">— JPS only (not synced from DataHub)</span>
                 </label>
                 <input
                   id="si-commodity-short-name"
@@ -833,6 +1015,24 @@ export default function MasterSiLookup({
                   value={formShortName}
                   onChange={(e) => setFormShortName(e.target.value)}
                   placeholder="e.g. CPO"
+                  disabled={!canDoEdit}
+                />
+              </div>
+            )}
+            {isCommodityMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-commodity-group" className="modal__label">
+                  Commodity group{' '}
+                  <span className="text-steel">— JPS only (not synced from DataHub)</span>
+                </label>
+                <input
+                  id="si-commodity-group"
+                  type="text"
+                  className="modal__input"
+                  value={formCommodityGroup}
+                  onChange={(e) => setFormCommodityGroup(e.target.value)}
+                  placeholder="e.g. CPO"
+                  maxLength={MAX_COMMODITY_GROUP_CHARS}
                   disabled={!canDoEdit}
                 />
               </div>
@@ -888,7 +1088,8 @@ export default function MasterSiLookup({
             {isCommodityMaster && (
               <div className="modal__section">
                 <label htmlFor="si-commodity-type" className="modal__label">
-                  <DataHubFieldCue>Commodity type</DataHubFieldCue>
+                  Type{' '}
+                  <span className="text-steel">— JPS Solid or Liquid (not synced from DataHub)</span>
                 </label>
                 <select
                   id="si-commodity-type"
@@ -897,9 +1098,22 @@ export default function MasterSiLookup({
                   onChange={(e) => setFormCommodityType(e.target.value)}
                   disabled={!canDoEdit}
                 >
+                  {editingId != null && formCommodityType === '' ? (
+                    <option value="">— Select type —</option>
+                  ) : null}
                   <option value="Liquid">Liquid</option>
                   <option value="Solid">Solid</option>
                 </select>
+              </div>
+            )}
+            {isCommodityMaster && (formHubType || formHubCode) && (
+              <div className="modal__section">
+                <label className="modal__label">
+                  <DataHubFieldCue>DataHub Type</DataHubFieldCue>
+                </label>
+                <p className="text-steel" style={{ margin: 0 }}>
+                  {formHubType || '—'}
+                </p>
               </div>
             )}
             {isCommodityMaster && (
@@ -1063,7 +1277,7 @@ export default function MasterSiLookup({
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
       {review && dataHubUiMeta && (
         <DataHubSyncReviewModal
@@ -1075,7 +1289,9 @@ export default function MasterSiLookup({
           onDiscard={handleDiscardSync}
           onClose={() => setReview(null)}
           recordNoun={dataHubUiMeta.recordNoun}
+          recordColumnLabel={dataHubUiMeta.recordColumnLabel}
           newHint={dataHubUiMeta.newHint}
+          showLocalUnchanged={Boolean(dataHubUiMeta.showLocalUnchanged)}
           metricLabelsById={isCommodityMaster ? metricLabelsById : null}
         />
       )}

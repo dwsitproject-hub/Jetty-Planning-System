@@ -46,6 +46,7 @@ export function createShippingInstruction(body) {
     loading_port_id: body.loadingPortId ?? null,
     surveyor_id: body.surveyorId ?? null,
     agent_id: body.agentId ?? null,
+    company_id: body.companyId ?? null,
     breakdown: body.breakdown ?? null,
     note: body.note ?? null,
     destination_text: body.destinationText ?? null,
@@ -57,9 +58,13 @@ export function createShippingInstruction(body) {
     bl_indicated: body.blIndicated ?? null,
     document_date: body.documentDate ?? null,
   }
+  if (body.masterVesselId != null && body.masterVesselId !== '') {
+    payload.master_vessel_id = body.masterVesselId
+  }
   if (body.shipmentPlanId != null && body.shipmentPlanId !== '') {
     payload.shipment_plan_id = body.shipmentPlanId
   }
+  if ('noExternalSi' in body) payload.no_external_si = body.noExternalSi === true
   return apiPost('/shipping-instructions', payload)
 }
 
@@ -68,7 +73,7 @@ export function deleteShippingInstruction(id) {
 }
 
 export function updateShippingInstruction(id, body) {
-  return apiPut(`/shipping-instructions/${id}`, {
+  const payload = {
     reference_number: body.referenceNumber,
     vessel_name: body.vesselName,
     voyage_no: body.voyageNo,
@@ -84,6 +89,7 @@ export function updateShippingInstruction(id, body) {
     loading_port_id: body.loadingPortId,
     surveyor_id: body.surveyorId,
     agent_id: body.agentId,
+    company_id: body.companyId ?? null,
     breakdown: body.breakdown,
     note: body.note,
     destination_text: body.destinationText,
@@ -94,7 +100,9 @@ export function updateShippingInstruction(id, body) {
     notify_party_text: body.notifyPartyText,
     bl_indicated: body.blIndicated,
     document_date: body.documentDate,
-  })
+  }
+  if ('noExternalSi' in body) payload.no_external_si = body.noExternalSi === true
+  return apiPut(`/shipping-instructions/${id}`, payload)
 }
 
 /** POST multipart: field `file` — OCR / PDF text extract for SI draft autofill (large timeout for first Tesseract run). */

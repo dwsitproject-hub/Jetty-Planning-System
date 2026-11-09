@@ -54,6 +54,7 @@ const hrs = (a, b) => {
   return x != null && y != null && y >= x ? +((y - x) / H).toFixed(1) : null
 }
 const fmt = (n, d = 0) => (n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d }))
+const numOrNull = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null)
 const fmtDate = (v) => (v ? String(v).slice(0, 10) : '—')
 const effPct = (r) => (r.berth && r.opsH != null ? (r.opsH / r.berth) * 100 : null)
 
@@ -547,20 +548,25 @@ export default function ManagementDashboard() {
         })
         break
       }
-      case 'rate': {
+      case 'rate':
+      case 'activeRate': {
+        const active = key === 'activeRate'
+        const pick = active ? 'activeRate' : 'rate'
         const rows = commodityCur.slices
-          .map((r) => ({ ...r, rate: productSliceFlowRate(r) }))
-          .filter((r) => r.rate != null)
+          .map((r) => ({ ...r, rate: productSliceFlowRate(r), activeRate: r.productActiveRateMtH ?? null }))
+          .filter((r) => r[pick] != null)
         setActiveModal({
-          title: 'Average flow rate',
-          subtitle: `${rows.length} commodity shipments · average ${fmt(commodityCur.rate, 1)} MT/h`,
-          footer: `${commodityFooter} · moved qty ÷ logged cargo hours (ATG / manual / hybrid)`,
+          title: active ? 'Active flow rate' : 'Achieved rate',
+          subtitle: `${rows.length} commodity shipments · ${fmt(commodityCur[pick], 1)} MT/h (total moved ÷ total hours)`,
+          footer: active
+            ? `${commodityFooter} · moved ÷ hours a cargo segment was running (pauses between segments excluded)`
+            : `${commodityFooter} · moved ÷ operational hours, first cargo start → last cargo end (includes pauses)`,
           sortable: true,
-          defaultSort: { key: 'rate', dir: 'desc' },
+          defaultSort: { key: pick, dir: 'desc' },
           stats: [
-            { label: 'Average', value: `${fmt(commodityCur.rate, 1)} MT/h` },
-            { label: 'Loading', value: `${fmt(commodityCur.loading.rate, 1)} MT/h` },
-            { label: 'Unloading', value: `${fmt(commodityCur.unloading.rate, 1)} MT/h` },
+            { label: 'All', value: `${fmt(commodityCur[pick], 1)} MT/h` },
+            { label: 'Loading', value: `${fmt(commodityCur.loading[pick], 1)} MT/h` },
+            { label: 'Unloading', value: `${fmt(commodityCur.unloading[pick], 1)} MT/h` },
             { label: 'Shipments', value: String(rows.length) },
           ],
           columns: [
@@ -568,21 +574,11 @@ export default function ManagementDashboard() {
             { key: 'purpose', label: 'Purpose', sortValue: (r) => r.purpose || '', cell: purposeCell },
             { key: 'jetty', label: 'Jetty', sortValue: (r) => r.jetty || '', cell: (r) => r.jetty || '—' },
             { key: 'commodity', label: 'Commodity', sortValue: commodityCell, cell: commodityCell },
-            {
-              key: 'moved',
-              label: 'Moved (MT)',
-              align: 'right',
-              sortValue: (r) => sliceMovedQty(r),
-              cell: (r) => fmt(sliceMovedQty(r)),
-            },
-            {
-              key: 'logged',
-              label: 'Logged h',
-              align: 'right',
-              sortValue: (r) => (r.productLoggedHours != null ? Number(r.productLoggedHours) : null),
-              cell: (r) => fmt(r.productLoggedHours, 1),
-            },
-            { key: 'rate', label: 'Rate', align: 'right', sortValue: (r) => r.rate, cell: (r) => `${fmt(r.rate, 0)} MT/h` },
+            { key: 'moved', label: 'Moved (MT)', align: 'right', sortValue: (r) => sliceMovedQty(r), cell: (r) => fmt(sliceMovedQty(r)) },
+            { key: 'opsHours', label: 'Operational h', align: 'right', sortValue: (r) => numOrNull(r.productLoggedHours), cell: (r) => fmt(r.productLoggedHours, 1) },
+            { key: 'activeHours', label: 'Active h', align: 'right', sortValue: (r) => numOrNull(r.productActiveHours), cell: (r) => fmt(r.productActiveHours, 1) },
+            { key: 'rate', label: 'Achieved', align: 'right', sortValue: (r) => r.rate, cell: (r) => `${fmt(r.rate, 0)} MT/h` },
+            { key: 'activeRate', label: 'Active', align: 'right', sortValue: (r) => r.activeRate, cell: (r) => `${fmt(r.activeRate, 0)} MT/h` },
             { key: 'sailed', label: 'Sailed off', sortValue: (r) => timeSort(r.castOff), cell: (r) => fmtDate(r.castOff) },
           ],
           rows,
@@ -770,15 +766,27 @@ export default function ManagementDashboard() {
     },
     {
       key: 'rate',
-      l: 'Average flow rate',
+      l: 'Achieved rate',
       v: fmt(commodityCur.rate, 1),
       u: 'MT/h',
       split: [
         { k: 'Loading', v: fmt(commodityCur.loading.rate, 1), u: 'MT/h' },
         { k: 'Unloading', v: fmt(commodityCur.unloading.rate, 1), u: 'MT/h' },
       ],
-      n: 'moved ÷ logged cargo hours',
+      n: 'moved ÷ total operational hours',
       d: <Delta cur={commodityCur.rate} prev={commodityPrev?.rate} />,
+    },
+    {
+      key: 'activeRate',
+      l: 'Active flow rate',
+      v: fmt(commodityCur.activeRate, 1),
+      u: 'MT/h',
+      split: [
+        { k: 'Loading', v: fmt(commodityCur.loading.activeRate, 1), u: 'MT/h' },
+        { k: 'Unloading', v: fmt(commodityCur.unloading.activeRate, 1), u: 'MT/h' },
+      ],
+      n: 'moved ÷ logged cargo hours',
+      d: <Delta cur={commodityCur.activeRate} prev={commodityPrev?.activeRate} />,
     },
   ]
 
@@ -995,7 +1003,7 @@ export default function ManagementDashboard() {
             </section>
             <section className="card">
               <h2 className="card__title">Achieved cargo rate (MT/hour)</h2>
-              <p className="text-steel mgmt-sub">Moved qty ÷ logged cargo hours (Ops Live) · green = Loading, blue = Unloading · click a row for details</p>
+              <p className="text-steel mgmt-sub">Moved qty ÷ operational hours, first cargo start → last end (Ops Live) · green = Loading, blue = Unloading · click a row for details</p>
               {leagues.rates.length ? leagues.rates.map((x) => {
                 const mx = leagues.rates[0].rate || 1
                 return (

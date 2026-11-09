@@ -4,12 +4,17 @@ import { useTranslation } from 'react-i18next'
 import { fetchTankGaugingLatest } from '../api/tankGauging'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import TankGaugingSourcesModal from '../components/TankGaugingSourcesModal.jsx'
+import TankOverrideCell from '../components/tankFarm/TankOverrideCell.jsx'
+import TankOverrideDialog from '../components/tankFarm/TankOverrideDialog.jsx'
+import { formatWhen } from '../utils/adminOpsDisplay'
+import { activeOverrides, overrideState } from '../utils/tankManualOverride'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import '../styles/allocation.css'
+import '../styles/tank-override.css'
 
 const PAGE_KEY = 'tank-farm'
 const STALE_MS = 5 * 60 * 1000
@@ -53,6 +58,12 @@ const COLUMNS = [
     label: 'Name',
     getSortValue: (r) => (r.name || '').toLowerCase(),
     getFilterValue: (r) => r.name || '',
+  },
+  {
+    key: 'manualOverride',
+    label: 'Manual override',
+    getSortValue: (r) => ({ on: 0, expired: 1, off: 2 })[overrideState(r)],
+    getFilterValue: (r) => overrideState(r).toUpperCase(),
   },
   {
     key: 'productName',
@@ -121,6 +132,7 @@ export default function TankFarm() {
   const [error, setError] = useState(null)
   const [refreshedAt, setRefreshedAt] = useState(null)
   const [configOpen, setConfigOpen] = useState(false)
+  const [overrideTank, setOverrideTank] = useState(null)
 
   const loadReadings = useCallback(async () => {
     if (!portId) {
@@ -171,6 +183,8 @@ export default function TankFarm() {
     COLUMNS,
     { key: 'sourceBaseUrl', dir: 'asc' }
   )
+
+  const onOverrides = useMemo(() => activeOverrides(rows), [rows])
 
   const selectedPortName = selectedPort?.name || (portId ? `Port #${portId}` : '')
 
@@ -226,6 +240,22 @@ export default function TankFarm() {
           </div>
         </div>
 
+        {onOverrides.length > 0 ? (
+          <div className="tank-override-banner" role="status">
+            <span>
+              {t('tankOverrideBanner', {
+                count: onOverrides.length,
+                tanks: onOverrides
+                  .map((r) => (r.manualOverride.expiresAt ? `${r.code} (${formatWhen(r.manualOverride.expiresAt)})` : r.code))
+                  .join(', '),
+              })}
+            </span>
+            <button type="button" className="btn btn--secondary btn--small" onClick={() => updateFilter('manualOverride', 'ON')}>
+              {t('tankOverrideShowOnly')}
+            </button>
+          </div>
+        ) : null}
+
         { !canManage ? (
           <p className="text-steel">{t('masterNeedWorkingPort')}</p>
         ) : loading && rows.length === 0 ? (
@@ -233,7 +263,7 @@ export default function TankFarm() {
         ) : displayRows.length === 0 ? (
           <p className="text-steel">{t('tankFarmEmpty')}</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--pin-actions table-wrap--pin-identity">
             <table className="data-table">
               <SortableFilterableTableHead
                 columns={COLUMNS}
@@ -244,7 +274,7 @@ export default function TankFarm() {
               />
               <tbody>
                 {displayRows.map((r) => (
-                  <tr key={r.tankId}>
+                  <tr key={r.tankId} className={overrideState(r) === 'on' ? 'tank-override-row--on' : undefined}>
                     <td>
                       <div>{r.sourceBaseUrl || '—'}</div>
                       {r.sourceUnitName ? (
@@ -253,6 +283,9 @@ export default function TankFarm() {
                     </td>
                     <td>{r.code}</td>
                     <td>{r.name || '—'}</td>
+                    <td>
+                      <TankOverrideCell tank={r} canEdit={canEditTankFarm} onOpen={setOverrideTank} t={t} />
+                    </td>
                     <td>{r.productName || '—'}</td>
                     <td>{r.tankComment || '—'}</td>
                     <td>{formatNum(r.levelMm, 1)}</td>
@@ -274,6 +307,18 @@ export default function TankFarm() {
       <p className="text-steel" style={{ marginTop: '0.75rem', fontSize: '0.9rem' }}>
         {t('tankFarmFooter')}
       </p>
+
+      {overrideTank ? (
+        <TankOverrideDialog
+          tank={overrideTank}
+          t={t}
+          onClose={() => setOverrideTank(null)}
+          onSaved={() => {
+            setOverrideTank(null)
+            loadReadings()
+          }}
+        />
+      ) : null}
 
       {configOpen && portId ? (
         <TankGaugingSourcesModal

@@ -88,19 +88,29 @@ export async function tankHasAtg(db, tankId) {
 }
 
 /**
+ * Split a line's tanks into ATG and manual. A tank whose quantity was entered by hand under the
+ * per-tank manual override counts as manual, so mixed-mode logic applies to it.
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {Array<number|string>} tankIds
+ * @param {Array<number|string>} [manualOverrideTankIds]
  */
-export async function partitionLineTanks(db, tankIds) {
+export async function partitionLineTanks(db, tankIds, manualOverrideTankIds = []) {
+  const overridden = new Set((manualOverrideTankIds || []).map(Number));
   const atgTankIds = [];
   const manualTankIds = [];
   for (const raw of tankIds || []) {
     const id = Number(raw);
     if (!Number.isFinite(id) || id <= 0) continue;
-    if (await tankHasAtg(db, id)) atgTankIds.push(id);
+    if (!overridden.has(id) && (await tankHasAtg(db, id))) atgTankIds.push(id);
     else manualTankIds.push(id);
   }
   return { atgTankIds, manualTankIds };
+}
+
+/** Tank ids with a hand-entered quantity, from a load line's manual_override JSON. */
+export function overrideTankIdsFromJson(manualOverride) {
+  const tanks = manualOverride && Array.isArray(manualOverride.tanks) ? manualOverride.tanks : [];
+  return tanks.map((t) => Number(t?.tankId)).filter((n) => Number.isFinite(n) && n > 0);
 }
 
 /**
@@ -328,7 +338,7 @@ export async function aggregateAtgDailyProgressForOperation(db, operationId, opt
 
   for (const line of ctx.lines) {
     if (line.atgQtyMode === 'manual') continue;
-    const { atgTankIds } = await partitionLineTanks(db, line.tankIds);
+    const { atgTankIds } = await partitionLineTanks(db, line.tankIds, line.manualOverrideTankIds);
     if (!atgTankIds.length) continue;
 
     const dateKeys = listOperationalDateKeysInRange(
@@ -426,9 +436,17 @@ export async function loadOperationProgressContext(db, operationId) {
 
   const linesR = await db.query(
     `SELECT l.id, l.qty, l.manual_qty, l.atg_qty_mode, l.started_at, l.ended_at,
-            l.atg_hourly_detail, l.commodity_id,
+            l.atg_hourly_detail, l.commodity_id, l.manual_override,
+            COALESCE(
+              (SELECT jsonb_object_agg(mt.id::text, mt.code)
+               FROM operation_cargo_load_line_tanks clt2
+               JOIN master_tanks mt ON mt.id = clt2.tank_id
+               WHERE clt2.load_line_id = l.id),
+              '{}'::jsonb
+            ) AS tank_codes,
             sc.short_name AS commodity_short_name,
             sc.name AS commodity_name,
+            sc.commodity_group AS commodity_group,
             COALESCE(
               (SELECT array_agg(clt.tank_id ORDER BY clt.tank_id)
                FROM operation_cargo_load_line_tanks clt
@@ -454,9 +472,13 @@ export async function loadOperationProgressContext(db, operationId) {
     endedAt: l.ended_at ? new Date(l.ended_at).toISOString() : null,
     atgHourlyDetail: Array.isArray(l.atg_hourly_detail) ? l.atg_hourly_detail : null,
     tankIds: (l.tank_ids || []).map(Number).filter((n) => n > 0),
+    manualOverrideTankIds: overrideTankIdsFromJson(l.manual_override),
+    manualOverrideNote: l.manual_override?.note ?? null,
+    tankCodeById: l.tank_codes || {},
     commodityId: l.commodity_id != null ? Number(l.commodity_id) : null,
     commodityShortName: l.commodity_short_name ? String(l.commodity_short_name).trim() : null,
     commodityName: l.commodity_name ? String(l.commodity_name).trim() : null,
+    commodityGroup: l.commodity_group ? String(l.commodity_group).trim() : null,
   }));
 
   const siR = await db.query(
@@ -464,7 +486,11 @@ export async function loadOperationProgressContext(db, operationId) {
             COALESCE(
               (SELECT array_agg(sub.k ORDER BY sub.k)
                FROM (
-                 SELECT DISTINCT UPPER(TRIM(COALESCE(sc.short_name, sc.name))) AS k
+                 SELECT DISTINCT UPPER(TRIM(COALESCE(
+                   NULLIF(TRIM(sc.commodity_group), ''),
+                   NULLIF(TRIM(sc.short_name), ''),
+                   sc.name
+                 ))) AS k
                  FROM shipping_instruction_breakdown b
                  JOIN si_commodities sc ON sc.id = b.commodity_id AND sc.deleted_at IS NULL
                  WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
@@ -577,7 +603,7 @@ export async function getOperationalProgress(db, operationId) {
   for (const line of ctx.lines) {
     if (!line.startedAt) continue;
 
-    const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds);
+    const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds, line.manualOverrideTankIds);
     const mode = resolveLineMode({
       commodityType: ctx.commodityType,
       atgTankIds,
@@ -964,7 +990,7 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
       continue;
     }
 
-    const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds);
+    const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds, line.manualOverrideTankIds);
     const mode = resolveLineMode({
       commodityType: ctx.commodityType,
       atgTankIds,

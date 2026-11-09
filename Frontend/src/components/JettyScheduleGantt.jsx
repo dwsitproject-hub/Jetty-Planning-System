@@ -11,6 +11,7 @@ import {
 import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
 import { buildAdjacencyAwareRowDefs } from '../utils/jettyAdjacency'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 import GanttDenseBlock from './GanttDenseBlock'
 import InteractiveTooltip from './InteractiveTooltip'
 import {
@@ -247,6 +248,7 @@ export default function JettyScheduleGantt({
   closeHint = '',
   onManage,
   railRows,
+  /** Open the existing create-shipment-plan modal. Omit to hide the toolbar button. */
   onCreatePlan,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
@@ -705,7 +707,6 @@ export default function JettyScheduleGantt({
   // ---- Drag-to-reschedule state ----------------------------------------------------------
   const dragRef = useRef(null)
   const suppressClickRef = useRef(false)
-  const pendingOpenedAtRef = useRef(0)
   const [pendingChange, setPendingChange] = useState(null) // { proposal, seg, row }
   const [pendingChoice, setPendingChoice] = useState('estimation')
   const [pendingSaving, setPendingSaving] = useState(false)
@@ -953,7 +954,6 @@ export default function JettyScheduleGantt({
             : 'estimation'
     )
     setPendingSaveError(null)
-    pendingOpenedAtRef.current = Date.now()
     setPendingChange({ proposal, seg: d.seg, row: d.row })
   }
 
@@ -1106,7 +1106,6 @@ export default function JettyScheduleGantt({
     if (!proposal) return
     setPendingChoice('estimation')
     setPendingSaveError(null)
-    pendingOpenedAtRef.current = Date.now()
     setPendingChange({
       proposal,
       seg: { vesselName: d.row.vesselName || '—' },
@@ -1127,16 +1126,6 @@ export default function JettyScheduleGantt({
     if (pendingSaving) return
     setPendingChange(null)
     setPendingSaveError(null)
-  }
-
-  // The dialog renders synchronously between the drop's pointerup and the browser's
-  // trailing click — that click can land on the full-screen overlay and close the
-  // dialog before the user ever sees it. Ignore overlay clicks right after opening,
-  // and only close when the click is on the overlay itself (not bubbled/retargeted).
-  const handleOverlayClick = (e) => {
-    if (e.target !== e.currentTarget) return
-    if (Date.now() - pendingOpenedAtRef.current < 400) return
-    closePendingChange()
   }
 
   const handleConfirmPendingChange = async () => {
@@ -1499,10 +1488,9 @@ export default function JettyScheduleGantt({
     </>
   )
 
-  // Without a rail the original DOM is unchanged (Fragment); with a rail the Gantt and the rail
-  // sit side by side.
-  const LayoutTag = railEnabled ? 'div' : Fragment
-  const layoutProps = railEnabled ? { className: 'jetty-schedule-gantt__layout' } : {}
+  const LayoutTag = Fragment
+  const layoutProps = {}
+  // Rail stays outside horizontal scroll (always visible) and below the date header row.
   const ChartShell = railEnabled ? 'div' : Fragment
   const chartShellProps = railEnabled
     ? { className: 'jetty-schedule-gantt__chart-with-rail', ref: chartShellRef }
@@ -1819,19 +1807,10 @@ export default function JettyScheduleGantt({
       ) : null}
       </ChartShell>
       </div>
-      {railEnabled ? (
-        <UnallocatedRail
-          rows={railRows}
-          canDrag={canEditSchedule && !exporting}
-          canScheduleRow={canScheduleRailRow}
-          onCardPointerDown={handleRailPointerDown}
-          onSelect={handleRailSelect}
-        />
-      ) : null}
       </LayoutTag>
 
       {pendingChange ? (
-        <div className="modal-overlay" onClick={handleOverlayClick} aria-hidden="true">
+        <StickyFormOverlay onClose={closePendingChange} closeDisabled={pendingSaving}>
           <div
             className="modal jetty-schedule-gantt__confirm-modal"
             onClick={(e) => e.stopPropagation()}
@@ -1990,7 +1969,7 @@ export default function JettyScheduleGantt({
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       ) : null}
     </section>
   )

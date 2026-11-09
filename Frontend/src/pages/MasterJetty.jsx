@@ -8,6 +8,7 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import { usePortScope } from '../context/PortScopeContext'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/shipping-instruction.css'
@@ -16,7 +17,9 @@ import {
   MAX_MASTER_JETTY_NAME_CHARS,
   MAX_RTSP_LINK_CHARS,
 } from '../constants/inputLimits'
+import DropdownMultiSelect from '../components/DropdownMultiSelect.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { commodityDropdownLabel, commoditySearchKeywords } from '../utils/commodityShortTitle.js'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import { jettyShortName, jettyNamesForIds } from '../utils/jettyAdjacency.js'
 import {
@@ -38,62 +41,38 @@ function commodityNamesList(commodities) {
 function JettyCommodityMultiSelect({
   idPrefix,
   label,
-  search,
-  onSearchChange,
   selectedIds,
   onSelectedIdsChange,
   commodityMaster,
   emptyHint,
 }) {
-  const filtered = commodityMaster.filter((c) => {
-    const term = search.trim().toLowerCase()
-    if (!term) return true
-    return (c.name || '').toLowerCase().includes(term) || (c.shortName || '').toLowerCase().includes(term)
-  })
-  const selectedNames = commodityMaster
-    .filter((c) => selectedIds.includes(c.id))
-    .map((c) => commodityDisplayLabel(c))
+  const active = (commodityMaster || []).filter((c) => c && c.isActive !== false)
+  const options = active.map((c) => ({
+    value: String(c.id),
+    label: commodityDropdownLabel(c),
+    keywords: commoditySearchKeywords(c),
+  }))
+  const selectedLabels = options
+    .filter((o) => selectedIds.map(String).includes(o.value))
+    .map((o) => o.label)
 
   return (
     <div className="modal__section">
-      <label className="modal__label" htmlFor={`${idPrefix}-search`}>{label}</label>
-      <input
-        id={`${idPrefix}-search`}
-        className="modal__input"
-        type="text"
-        value={search}
-        onChange={(e) => onSearchChange(e.target.value)}
-        placeholder="Search commodity…"
-        autoComplete="off"
+      <DropdownMultiSelect
+        id={idPrefix}
+        label={label}
+        options={options}
+        selectedValues={selectedIds.map(String)}
+        onChange={onSelectedIdsChange}
+        placeholder="Search material code or name"
+        titleLabel={label}
+        searchable
+        searchPlaceholder="Search material code or name"
+        portal
+        emptyText="No commodities in Master – Commodity."
       />
-      <div
-        style={{
-          maxHeight: 150,
-          overflowY: 'auto',
-          border: '1px solid #d1d5db',
-          borderRadius: 6,
-          marginTop: 6,
-          padding: '4px 8px',
-        }}
-      >
-        {filtered.map((c) => (
-          <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: '0.875rem', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={selectedIds.map(String).includes(String(c.id))}
-              onChange={(e) =>
-                onSelectedIdsChange(
-                  e.target.checked ? [...selectedIds, c.id] : selectedIds.filter((x) => x !== c.id)
-                )
-              }
-            />
-            {commodityDisplayLabel(c)}
-          </label>
-        ))}
-        {commodityMaster.length === 0 ? <p className="text-steel">No commodities in Master – Commodity.</p> : null}
-      </div>
       <p className="text-steel" style={{ marginTop: '0.25rem' }}>
-        {selectedNames.length ? `Selected: ${selectedNames.join(', ')}` : emptyHint}
+        {selectedLabels.length ? `Selected: ${selectedLabels.join(', ')}` : emptyHint}
       </p>
     </div>
   )
@@ -179,8 +158,6 @@ export default function MasterJetty() {
   const [formDwt, setFormDwt] = useState('')
   const [formUnloadingCommodityIds, setFormUnloadingCommodityIds] = useState([])
   const [formLoadingCommodityIds, setFormLoadingCommodityIds] = useState([])
-  const [unloadingCommoditySearch, setUnloadingCommoditySearch] = useState('')
-  const [loadingCommoditySearch, setLoadingCommoditySearch] = useState('')
   const [formAdjacentJettyIds, setFormAdjacentJettyIds] = useState([])
   const [commodityMaster, setCommodityMaster] = useState([])
   const [formDescription, setFormDescription] = useState('')
@@ -236,8 +213,6 @@ export default function MasterJetty() {
     setFormDwt('')
     setFormUnloadingCommodityIds([])
     setFormLoadingCommodityIds([])
-    setUnloadingCommoditySearch('')
-    setLoadingCommoditySearch('')
     setFormAdjacentJettyIds([])
     setFormDescription('')
     setFormRtspLink('')
@@ -257,8 +232,6 @@ export default function MasterJetty() {
     setFormDwt(jetty.jettyDwt != null ? String(jetty.jettyDwt) : '')
     setFormUnloadingCommodityIds(Array.isArray(jetty.unloadingCommodities) ? jetty.unloadingCommodities.map((c) => String(c.id)) : [])
     setFormLoadingCommodityIds(Array.isArray(jetty.loadingCommodities) ? jetty.loadingCommodities.map((c) => String(c.id)) : [])
-    setUnloadingCommoditySearch('')
-    setLoadingCommoditySearch('')
     setFormAdjacentJettyIds(Array.isArray(jetty.adjacentJettyIds) ? jetty.adjacentJettyIds.map(Number) : [])
     setFormDescription(jetty.description ?? '')
     setFormRtspLink(jetty.rtspLink ?? '')
@@ -535,7 +508,7 @@ export default function MasterJetty() {
         ) : jetties.length === 0 ? (
           <p className="text-steel">No jetties. Click Add Jetty.</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--pin-actions table-wrap--pin-actions--single">
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -544,12 +517,20 @@ export default function MasterJetty() {
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
                 {displayRows.map((j) => (
                   <tr key={j.id}>
+                    <td className="allocation-table__action-col">
+                      <div className="allocation-table__action-btns">
+                        <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(j)}>
+                          Edit
+                        </button>
+                      </div>
+                    </td>
                     <td>{j.orderNo ?? '—'}</td>
                     <td><strong>{j.name || '—'}</strong></td>
                     <td>{j.capacity ?? 1}</td>
@@ -563,11 +544,6 @@ export default function MasterJetty() {
                     <td>{j.description ? (j.description.length > 40 ? `${j.description.slice(0, 40)}…` : j.description) : '—'}</td>
                     <td className="text-steel">{formatMasterCreatedLine(j)}</td>
                     <td className="text-steel">{formatMasterLastUpdatedLine(j)}</td>
-                    <td>
-                      <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(j)}>
-                        Edit
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -582,7 +558,7 @@ export default function MasterJetty() {
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal} aria-hidden="true">
+        <StickyFormOverlay onClose={closeModal}>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <h2 className="modal__title">{editingId != null ? 'Edit Jetty' : 'Add Jetty'}</h2>
             <div className="modal__section">
@@ -684,8 +660,6 @@ export default function MasterJetty() {
             <JettyCommodityMultiSelect
               idPrefix="master-jetty-unloading-commodity"
               label="Allowed for Unloading"
-              search={unloadingCommoditySearch}
-              onSearchChange={setUnloadingCommoditySearch}
               selectedIds={formUnloadingCommodityIds}
               onSelectedIdsChange={setFormUnloadingCommodityIds}
               commodityMaster={commodityMaster}
@@ -694,8 +668,6 @@ export default function MasterJetty() {
             <JettyCommodityMultiSelect
               idPrefix="master-jetty-loading-commodity"
               label="Allowed for Loading"
-              search={loadingCommoditySearch}
-              onSearchChange={setLoadingCommoditySearch}
               selectedIds={formLoadingCommodityIds}
               onSelectedIdsChange={setFormLoadingCommodityIds}
               commodityMaster={commodityMaster}
@@ -760,7 +732,7 @@ export default function MasterJetty() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
     </div>
   )

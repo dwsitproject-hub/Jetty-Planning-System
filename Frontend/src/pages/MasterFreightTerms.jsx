@@ -61,7 +61,7 @@ export default function MasterFreightTerms() {
           <h2 className="card__title">Freight Terms</h2>
         </div>
 
-        <div className="table-wrap">
+        <div className="table-wrap table-wrap--pin-actions table-wrap--pin-identity">
           <table className="data-table allocation-table">
             <thead>
               <SortableFilterableTableHead

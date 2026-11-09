@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { Link, useParams, Navigate, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import {
   vessels,
   getAtBerthOperations,
@@ -45,7 +46,13 @@ import FlowPill from '../components/FlowPill'
 import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWorkspace'
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
 import FormLabelWithTooltip from '../components/FormLabelWithTooltip'
+import { QcDecisionPillRow } from '../components/qc/QcDecisionPill'
+import SampleRefField from '../components/sampling/SampleRefField'
+import SamplingCommodityCards from '../components/sampling/SamplingCommodityCards'
 import SamplingExtractReviewModal from '../components/SamplingExtractReviewModal'
+import { usePortTanks } from '../hooks/usePortTanks'
+import { matchTankId, tankCodeOf } from '../utils/samplingSampleRef'
+import { applyCardExtract, cardsToSaveBody, carryVisitOntoSingleCard, collapsedAttention, decisionSummaryText, samplingViewFromCard, seedCommodityCards } from '../utils/samplingCommodity'
 import {
   useSamplingDocumentExtract,
   samplingDocumentIsExtractable,
@@ -337,7 +344,7 @@ function OperationSignoffBanner({
       </section>
 
       {requestOpen && (
-        <div className="modal-overlay" onClick={() => !busy && setRequestOpen(false)} aria-hidden="true">
+        <StickyFormOverlay onClose={() => setRequestOpen(false)} closeDisabled={busy}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -375,7 +382,7 @@ function OperationSignoffBanner({
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
     </>
@@ -1213,6 +1220,7 @@ function Loading() {
               activityLogRefresh={activityLogRefresh}
               onPersistedHydrationDone={onPreCheckPersistHydrated}
               scheduleEntryTz={scheduleEntryTz}
+              siCommodityOptions={apiOp?.siCommodityOptions ?? []}
             />
           </>
         )}
@@ -1707,8 +1715,13 @@ function PreCheckingSections({
   activityLogRefresh = 0,
   onPersistedHydrationDone,
   scheduleEntryTz,
+  siCommodityOptions = [],
 }) {
   const { t: tLoading } = useTranslation('loading')
+  const { t: tQc } = useTranslation('qc')
+  const { selectedPort } = usePortScope()
+  const sampleRefKind = purpose === 'Loading' ? 'tank' : 'palka'
+  const tanks = usePortTanks(selectedPort?.id, sampleRefKind === 'tank')
   const preCheckTabs = useMemo(() => getPreCheckSubTabs(purpose), [purpose])
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('keyMeeting')
@@ -1718,15 +1731,22 @@ function PreCheckingSections({
   const [formModalOpen, setFormModalOpen] = useState(false)
   const [draft, setDraft] = useState(() => defaultPreCheckingSection())
   const [editingSamplingRecordId, setEditingSamplingRecordId] = useState(null)
-  const [samplingForm, setSamplingForm] = useState({ noPalka: '', ffa: '', moisture: '' })
+  const emptySamplingForm = { noPalka: '', tankId: '', ffa: '', moisture: '' }
+  const [samplingForm, setSamplingForm] = useState(emptySamplingForm)
   const [loadingPersisted, setLoadingPersisted] = useState(false)
   const [persistError, setPersistError] = useState(null)
   const [savingSection, setSavingSection] = useState(null)
   const [saveSuccessMessage, setSaveSuccessMessage] = useState(null)
   const [removingDoc, setRemovingDoc] = useState(null)
   const samplingExtract = useSamplingDocumentExtract()
+  const extractCommodityRef = useRef(null)
 
   const data = getPreChecking(vesselId)
+  const savedSamplingCards = carryVisitOntoSingleCard(
+    seedCommodityCards(data.sampling?.commodities, siCommodityOptions),
+    data.sampling
+  )
+  const editSamplingCards = seedCommodityCards(draft.sampling?.commodities, siCommodityOptions)
   const norFromArrival = getArrivalNor(vesselId)
 
   useEffect(() => {
@@ -1806,6 +1826,8 @@ function PreCheckingSections({
               merged.moistureAverage = row.moistureAverage ?? ''
               merged.dobi = row.dobi ?? ''
               merged.iodineValue = row.iodineValue ?? ''
+              merged.commodities = Array.isArray(row.commodities) ? row.commodities : []
+              merged.legacyUnassigned = row.legacyUnassigned || null
             }
             if (section === 'norAccepted') {
               const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
@@ -1823,7 +1845,14 @@ function PreCheckingSections({
         const docBySection = {}
         const loadedDocs = await Promise.all(docLoads)
         loadedDocs.forEach((x) => {
-          const list = x.docs.map((d) => ({ id: d.id, name: d.name, url: d.url, source: 'precheck_subprocess' }))
+          const list = x.docs.map((d) => ({
+            id: d.id,
+            name: d.name,
+            url: d.url,
+            mimeType: d.mimeType ?? null,
+            commodityId: d.commodityId ?? null,
+            source: 'precheck_subprocess',
+          }))
           docBySection[x.section] = [...(docBySection[x.section] || []), ...list]
         })
         Object.keys(docBySection).forEach((k) => {
@@ -1838,7 +1867,16 @@ function PreCheckingSections({
         })
         Object.entries(bySection).forEach(([section, val]) => {
           if (section === 'norAccepted') return
-          setPreCheckingSection(vesselId, section, { ...val, documents: docBySection[section] || [] })
+          const docs = docBySection[section] || []
+          const next = { ...val, documents: docs }
+          if (section === 'sampling' && Array.isArray(val.commodities) && val.commodities.length > 0) {
+            next.documents = docs.filter((d) => d.commodityId == null)
+            next.commodities = val.commodities.map((card) => ({
+              ...card,
+              documents: docs.filter((d) => Number(d.commodityId) === Number(card.commodityId)),
+            }))
+          }
+          setPreCheckingSection(vesselId, section, next)
         })
         const norFromSub = bySection.norAccepted || {}
         const opNorDocs = (Array.isArray(norDocsFromOperation) ? norDocsFromOperation : []).map((d) => ({
@@ -1949,8 +1987,22 @@ function PreCheckingSections({
       }
     }
     if (sectionKey === 'sampling') {
-      merged.sampling = { ...(current.sampling || {}), records: current.sampling?.records ?? [] }
-      setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+      const sampling = current.sampling || {}
+      const commodities = carryVisitOntoSingleCard(
+        seedCommodityCards(sampling.commodities, siCommodityOptions),
+        sampling
+      )
+      const moved =
+        commodities.length === 1 &&
+        commodities[0].documents === sampling.documents &&
+        (sampling.documents || []).length > 0
+      merged.sampling = {
+        ...sampling,
+        records: sampling.records ?? [],
+        commodities,
+        documents: moved ? [] : sampling.documents,
+      }
+      setSamplingForm(emptySamplingForm)
       setEditingSamplingRecordId(null)
     }
     setDraft(merged)
@@ -1997,18 +2049,24 @@ function PreCheckingSections({
       }
     }
     if (sectionKey === 'sampling') {
+      const cards = cardsToSaveBody(seedCommodityCards(sectionDraft?.commodities, siCommodityOptions))
+      const hasCards = Array.isArray(cards) && cards.length > 0
       return {
         status: 'Done',
         occurredAt: startTime,
         startAt: startTime,
         endAt: endTime,
         remark: sectionDraft?.remark || '',
-        // Top-level, not inside payload: these are typed columns on the sub-process row.
-        ffaAverage: sectionDraft?.ffaAverage ?? '',
-        moistureAverage: sectionDraft?.moistureAverage ?? '',
-        dobi: sectionDraft?.dobi ?? '',
-        iodineValue: sectionDraft?.iodineValue ?? '',
-        payload: { records: sectionDraft?.records || [] },
+        ...(hasCards
+          ? { commodities: cards }
+          : {
+              ffaAverage: sectionDraft?.ffaAverage ?? '',
+              moistureAverage: sectionDraft?.moistureAverage ?? '',
+              dobi: sectionDraft?.dobi ?? '',
+              iodineValue: sectionDraft?.iodineValue ?? '',
+              payload: { records: sectionDraft?.records || [] },
+            }),
+        expectedUpdatedAt: sectionDraft?.lastSavedAt || undefined,
       }
     }
     if (sectionKey === 'initialCargoChecking') {
@@ -2152,22 +2210,64 @@ function PreCheckingSections({
             { phase: 'Pre-Checking', ...payload, status: nextStatus },
             { scheduleIana: scheduleEntryTz }
           )
-          if (sent?.updatedAt) {
-            setPreCheckingSection(vesselId, sectionKey, { lastSavedAt: sent.updatedAt })
+          const cards = Array.isArray(sectionDraft.commodities) ? sectionDraft.commodities : []
+          const pendingDocs = [
+            ...(sectionDraft.documents || []).filter((d) => d?.file && d.commodityId == null),
+            ...cards.flatMap((card) =>
+              (card.documents || []).filter((d) => d?.file).map((d) => ({ ...d, commodityId: card.commodityId }))
+            ),
+          ]
+          const saved = []
+          const groups = new Map()
+          for (const doc of pendingDocs) {
+            const key = doc.commodityId != null ? String(doc.commodityId) : ''
+            if (!groups.has(key)) groups.set(key, [])
+            groups.get(key).push(doc)
           }
-          const pendingDocs = (sectionDraft.documents || []).filter((d) => d?.file)
-          if (pendingDocs.length > 0) {
-            const upload = await uploadSubProcessDocuments(operationId, subKey, 'Pre-Checking', pendingDocs.map((d) => d.file))
-            const saved = Array.isArray(upload?.items)
-              ? upload.items.map((x) => ({ id: x.id, name: x.name, url: x.url }))
-              : []
+          for (const [key, docs] of groups) {
+            const upload = await uploadSubProcessDocuments(
+              operationId,
+              subKey,
+              'Pre-Checking',
+              docs.map((d) => d.file),
+              key || null
+            )
+            for (const item of Array.isArray(upload?.items) ? upload.items : []) {
+              saved.push({
+                id: item.id,
+                name: item.name,
+                url: item.url,
+                commodityId: item.commodityId ?? (key ? Number(key) : null),
+              })
+            }
+          }
+          if (cards.length > 0) {
+            const kept = (docs) => (docs || []).filter((d) => !d?.file)
             setPreCheckingSection(vesselId, sectionKey, {
-              ...sectionDraft,
               status: nextStatus,
-              documents: [
-                ...(sectionDraft.documents || []).filter((d) => !d?.file),
-                ...saved,
-              ],
+              legacyUnassigned: sent?.legacyUnassigned ?? sectionDraft.legacyUnassigned ?? null,
+              commodities: (sent?.commodities || cards).map((card) => {
+                const local = cards.find((c) => Number(c.commodityId) === Number(card.commodityId))
+                return {
+                  ...card,
+                  documents: [
+                    ...kept(local?.documents),
+                    ...saved.filter((d) => Number(d.commodityId) === Number(card.commodityId)),
+                  ],
+                }
+              }),
+              ...(sent?.updatedAt ? { lastSavedAt: sent.updatedAt } : {}),
+            })
+          } else if (sent?.updatedAt || saved.length > 0) {
+            setPreCheckingSection(vesselId, sectionKey, {
+              ...(saved.length > 0
+                ? {
+                    documents: [
+                      ...(sectionDraft.documents || []).filter((d) => !d?.file),
+                      ...saved,
+                    ],
+                  }
+                : {}),
               ...(sent?.updatedAt ? { lastSavedAt: sent.updatedAt } : {}),
             })
           }
@@ -2287,7 +2387,7 @@ function PreCheckingSections({
   const cancelEdit = () => {
     setEditingSection(null)
     setEditingSamplingRecordId(null)
-    setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setSamplingForm(emptySamplingForm)
     setFormModalOpen(false)
   }
 
@@ -2325,12 +2425,18 @@ function PreCheckingSections({
   })()
 
   /** Read palka values out of an attached quality report; opens the review modal. */
-  const requestSamplingExtract = (doc, index) => {
+  const requestSamplingExtract = (doc, index, commodityId = null) => {
     setPersistError(null)
+    extractCommodityRef.current = commodityId
+    const visit = draft.sampling || {}
+    const card =
+      commodityId == null
+        ? null
+        : (visit.commodities || []).find((c) => Number(c.commodityId) === Number(commodityId))
     samplingExtract.requestExtract({
       doc,
-      docKey: `sampling-${index}`,
-      sampling: draft.sampling || {},
+      docKey: commodityId == null ? `sampling-${index}` : `sampling-${commodityId}-${index}`,
+      sampling: card ? samplingViewFromCard(visit, card) : visit,
       context: { vesselName, numberOfPalka },
       onError: (message) => setPersistError(message || tLoading('sampling.extractError')),
     })
@@ -2338,48 +2444,135 @@ function PreCheckingSections({
 
   /** Commit the operator's review selections into the sampling draft. */
   const applySamplingExtract = (choices) => {
-    const result = samplingExtract.applyReview(choices, draft.sampling || {})
+    const commodityId = extractCommodityRef.current
+    const visit = draft.sampling || {}
+    const card =
+      commodityId == null
+        ? null
+        : (visit.commodities || []).find((c) => Number(c.commodityId) === Number(commodityId))
+    const result = samplingExtract.applyReview(choices, card ? samplingViewFromCard(visit, card) : visit)
     if (!result) return
-    setDraft((prev) => ({ ...prev, sampling: result.nextSampling }))
+    setDraft((prev) => {
+      const sampling = prev.sampling || {}
+      if (commodityId == null) return { ...prev, sampling: { ...sampling, ...result.nextSampling, commodities: sampling.commodities } }
+      return {
+        ...prev,
+        sampling: {
+          ...sampling,
+          startTime: result.nextSampling.startTime ?? sampling.startTime,
+          endTime: result.nextSampling.endTime ?? sampling.endTime,
+          commodities: (sampling.commodities || []).map((c) =>
+            Number(c.commodityId) === Number(commodityId) ? applyCardExtract(c, result.nextSampling) : c
+          ),
+        },
+      }
+    })
     setSaveSuccessMessage(`${formatSamplingExtractApplyMessage(tLoading, result.summary, samplingExtract.fileName)} ${tLoading('sampling.extractReviewThenSave')}`)
   }
 
+  const updateSamplingCommodity = (commodityId, updater) => {
+    setDraft((prev) => {
+      const commodities = seedCommodityCards(prev.sampling?.commodities, siCommodityOptions)
+      return {
+        ...prev,
+        sampling: {
+          ...prev.sampling,
+          commodities: commodities.map((card) =>
+            Number(card.commodityId) === Number(commodityId) ? updater(card) : card
+          ),
+        },
+      }
+    })
+  }
+
+  const addCommodityDocuments = (commodityId, files) => {
+    const added = Array.from(files || []).map((file) => ({
+      name: file.name,
+      url: URL.createObjectURL(file),
+      file,
+      commodityId,
+    }))
+    if (added.length === 0) return
+    updateSamplingCommodity(commodityId, (card) => ({ ...card, documents: [...(card.documents || []), ...added] }))
+  }
+
+  const removeCommodityDocument = async (commodityId, index) => {
+    const card = (draft.sampling?.commodities || []).find((c) => Number(c.commodityId) === Number(commodityId))
+    const doc = card?.documents?.[index]
+    if (!doc) return
+    if (!doc.file && doc.id != null) {
+      if (!window.confirm('Remove this document from the operation?')) return
+      await deleteSubProcessDocument(operationId, 'sampling', doc.id, 'Pre-Checking')
+    }
+    updateSamplingCommodity(commodityId, (current) => ({
+      ...current,
+      documents: (current.documents || []).filter((_, i) => i !== index),
+    }))
+  }
+
   const addSamplingRecord = () => {
-    const { noPalka, ffa, moisture } = samplingForm
-    if (!noPalka.trim()) return
+    const { noPalka, tankId, ffa, moisture } = samplingForm
+    const label = sampleRefKind === 'tank' ? tankCodeOf(tanks, tankId) || noPalka.trim() : noPalka.trim()
+    if (sampleRefKind === 'tank' ? !String(tankId || '').trim() : !label) return
     const id = `sampling-${Date.now()}-${Math.random().toString(36).slice(2)}`
     setDraft((prev) => ({
       ...prev,
       sampling: {
         ...prev.sampling,
-        records: [...(prev.sampling?.records || []), { id, noPalka: noPalka.trim(), ffa: (ffa || '').trim(), moisture: (moisture || '').trim() }],
+        records: [
+          ...(prev.sampling?.records || []),
+          {
+            id,
+            noPalka: label,
+            ...(sampleRefKind === 'tank' ? { tankId: Number(tankId) || tankId } : {}),
+            ffa: (ffa || '').trim(),
+            moisture: (moisture || '').trim(),
+          },
+        ],
       },
     }))
-    setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setSamplingForm(emptySamplingForm)
   }
 
   const startEditSamplingRecord = (record) => {
     setEditingSamplingRecordId(record.id)
-    setSamplingForm({ noPalka: record.noPalka || '', ffa: record.ffa || '', moisture: record.moisture || '' })
+    setSamplingForm({
+      noPalka: record.noPalka || '',
+      tankId: matchTankId(record, tanks),
+      ffa: record.ffa || '',
+      moisture: record.moisture || '',
+    })
   }
 
   const updateSamplingRecord = () => {
     if (!editingSamplingRecordId) return
+    const label =
+      sampleRefKind === 'tank'
+        ? tankCodeOf(tanks, samplingForm.tankId) || samplingForm.noPalka.trim()
+        : samplingForm.noPalka.trim()
     setDraft((prev) => ({
       ...prev,
       sampling: {
         ...prev.sampling,
         records: (prev.sampling?.records || []).map((r) =>
-          r.id === editingSamplingRecordId ? { ...r, noPalka: samplingForm.noPalka.trim(), ffa: samplingForm.ffa.trim(), moisture: samplingForm.moisture.trim() } : r
+          r.id === editingSamplingRecordId
+            ? {
+                ...r,
+                noPalka: label,
+                ...(sampleRefKind === 'tank' ? { tankId: Number(samplingForm.tankId) || samplingForm.tankId } : {}),
+                ffa: samplingForm.ffa.trim(),
+                moisture: samplingForm.moisture.trim(),
+              }
+            : r
         ),
       },
     }))
-    setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setSamplingForm(emptySamplingForm)
     setEditingSamplingRecordId(null)
   }
 
   const cancelEditSamplingRecord = () => {
-    setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setSamplingForm(emptySamplingForm)
     setEditingSamplingRecordId(null)
   }
 
@@ -2390,7 +2583,7 @@ function PreCheckingSections({
       sampling: { ...prev.sampling, records: (prev.sampling?.records || []).filter((r) => r.id !== id) },
     }))
     if (editingSamplingRecordId === id) {
-      setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+      setSamplingForm(emptySamplingForm)
       setEditingSamplingRecordId(null)
     }
   }
@@ -2466,7 +2659,12 @@ function PreCheckingSections({
               const status = String(stepStatuses[tab.id] || '').toLowerCase()
               const statusClass = status.replace(/\s+/g, '-')
               const code = PRECHECK_SHORT_CODE[tab.id] || tab.label.slice(0, 4)
-              const title = `${tab.label} · ${stepStatuses[tab.id] || '—'}${data[tab.id]?.lastSavedAt ? ` · Last saved ${formatDateTimeDisplay(data[tab.id].lastSavedAt)}` : ''}`
+              const samplingCards = tab.id === 'sampling' ? data.sampling?.commodities : null
+              const decisionText = decisionSummaryText(samplingCards, (decisionCode) => tQc(`decision.${decisionCode}`))
+              const attention = collapsedAttention(samplingCards)
+              const title = `${tab.label} · ${stepStatuses[tab.id] || '—'}${
+                decisionText ? ` · ${decisionText}` : ''
+              }${data[tab.id]?.lastSavedAt ? ` · Last saved ${formatDateTimeDisplay(data[tab.id].lastSavedAt)}` : ''}`
               return (
                 <div
                   key={tab.id}
@@ -2481,6 +2679,9 @@ function PreCheckingSections({
                       aria-label={title}
                     >
                       <span className={`precheck-status-dot precheck-status-dot--${statusClass}`} aria-hidden />
+                      {attention ? (
+                        <span className={`precheck-status-dot precheck-status-dot--qc-${attention}`} aria-hidden />
+                      ) : null}
                       <span className="precheck-checklist__code" aria-hidden>{code}</span>
                     </button>
                   ) : (
@@ -2492,6 +2693,11 @@ function PreCheckingSections({
                             {stepStatuses[tab.id]}
                           </span>
                         </div>
+                        {decisionText ? (
+                          <div className="precheck-checklist__qc">
+                            <QcDecisionPillRow commodities={samplingCards} />
+                          </div>
+                        ) : null}
                         {data[tab.id]?.lastSavedAt ? (
                           <span className="precheck-checklist__saved">
                             Last saved {formatDateTimeDisplay(data[tab.id].lastSavedAt)}
@@ -2517,7 +2723,7 @@ function PreCheckingSections({
             onActivityLogRefresh={onActivityLogRefresh}
           />
           {formModalOpen ? (
-            <div className="modal-overlay" onClick={cancelEdit} aria-hidden="true">
+            <StickyFormOverlay onClose={cancelEdit}>
               <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Pre-Checking form">
       {activeSubTab === 'keyMeeting' && (
       <PreCheckSectionCard
@@ -2808,6 +3014,60 @@ function PreCheckingSections({
                 onChange={(e) => updateDraft('sampling', 'endTime', e.target.value)}
               />
             </div>
+            {editSamplingCards.length > 0 ? (
+              <>
+              <SamplingCommodityCards
+                commodities={editSamplingCards}
+                legacyUnassigned={draft.sampling.legacyUnassigned}
+                variant="hub"
+                sampleRefKind={sampleRefKind}
+                tanks={tanks}
+                onPatch={(commodityId, patch) => updateSamplingCommodity(commodityId, (card) => ({ ...card, ...patch }))}
+                onAddRecord={(commodityId, record) =>
+                  updateSamplingCommodity(commodityId, (card) => ({ ...card, records: [...(card.records || []), record] }))
+                }
+                onUpdateRecord={(commodityId, id, patch) =>
+                  updateSamplingCommodity(commodityId, (card) => ({
+                    ...card,
+                    records: (card.records || []).map((row) => (row.id === id ? { ...row, ...patch } : row)),
+                  }))
+                }
+                onDeleteRecord={(commodityId, id) =>
+                  updateSamplingCommodity(commodityId, (card) => ({
+                    ...card,
+                    records: (card.records || []).filter((row) => row.id !== id),
+                  }))
+                }
+                renderDocuments={(card) => (
+                  <PrecheckDocumentsEdit
+                    sectionKey={`sampling-${card.commodityId}`}
+                    documents={card.documents}
+                    onAddFiles={(files) => addCommodityDocuments(card.commodityId, files)}
+                    onRemoveIndex={(i) => removeCommodityDocument(card.commodityId, i)}
+                    removingKey={removingDoc}
+                    accept="image/*,.pdf,.xlsx"
+                    tooltip={tLoading('sampling.uploadTooltip')}
+                    copy={{
+                      uploadLabel: tLoading('sampling.uploadLabel'),
+                      chooseFiles: tLoading('sampling.chooseFiles'),
+                      filesSelected: (count) => tLoading('sampling.filesSelected', { count }),
+                      extractData: tLoading('sampling.extractData'),
+                      extractReading: tLoading('sampling.extractReading'),
+                      extractTitle: tLoading('sampling.extractTitle'),
+                      extractAria: (name) => tLoading('sampling.extractAria', { name: name || 'file' }),
+                      openDocument: tLoading('sampling.openDocument'),
+                      openDocumentAria: (name) => tLoading('sampling.openDocumentAria', { name: name || 'file' }),
+                      removeDocument: tLoading('sampling.removeDocument'),
+                      removeDocumentAria: (name) => tLoading('sampling.removeDocumentAria', { name: name || 'file' }),
+                    }}
+                    onExtract={(doc, index) => requestSamplingExtract(doc, index, card.commodityId)}
+                    extractingKey={samplingExtract.extractingKey}
+                  />
+                )}
+              />
+              </>
+            ) : (
+            <>
             <PrecheckDocumentsEdit
               sectionKey="sampling"
               documents={draft.sampling?.documents}
@@ -2834,16 +3094,21 @@ function PreCheckingSections({
             />
             <section className="sampling-entry-block">
               <h4 className="sampling-entry-block__title">{tLoading('sampling.entriesTitle')}</h4>
-              <div className="sampling-entry-block__grid sampling-entry-block__grid--palka">
+              <div className={`sampling-entry-block__grid sampling-entry-block__grid--palka${sampleRefKind === 'tank' ? ' sampling-entry-block__grid--tank' : ''}`}>
                 <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">{tLoading('sampling.noPalka')}</label>
-                  <input
-                    type="text"
-                    className="berthing-modal__input"
-                    value={samplingForm.noPalka}
-                    onChange={(e) => setSamplingForm((f) => ({ ...f, noPalka: e.target.value }))}
+                  <label className="berthing-modal__label">
+                    {tLoading(sampleRefKind === 'tank' ? 'sampling.tank' : 'sampling.noPalka')}
+                  </label>
+                  <SampleRefField
+                    kind={sampleRefKind}
+                    tanks={tanks}
+                    tankId={samplingForm.tankId}
+                    noPalka={samplingForm.noPalka}
+                    inputClass="berthing-modal__input"
                     maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
-                    placeholder={tLoading('sampling.placeholderPalka')}
+                    placeholder={tLoading(sampleRefKind === 'tank' ? 'sampling.placeholderTank' : 'sampling.placeholderPalka')}
+                    searchPlaceholder={tLoading('sampling.searchTank')}
+                    onChange={(next) => setSamplingForm((f) => ({ ...f, ...next }))}
                   />
                 </div>
                 <div className="berthing-modal__field">
@@ -2897,7 +3162,7 @@ function PreCheckingSections({
               <table className="loading-detail-activity-table sampling-recorded-table">
                 <thead>
                   <tr>
-                    <th>{tLoading('sampling.noPalka')}</th>
+                    <th>{tLoading(sampleRefKind === 'tank' ? 'sampling.tank' : 'sampling.noPalka')}</th>
                     <th>{tLoading('sampling.ffa')}</th>
                     <th>{tLoading('sampling.moisture')}</th>
                     <th>{tLoading('sampling.actions')}</th>
@@ -2985,17 +3250,6 @@ function PreCheckingSections({
                 </div>
               </div>
             </section>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">{tLoading('sampling.remark')}</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.sampling?.remark || ''}
-                onChange={(e) => updateDraft('sampling', 'remark', e.target.value)}
-                maxLength={MAX_REMARK_CHARS}
-                rows={4}
-                placeholder={tLoading('sampling.remarkPlaceholder')}
-              />
-            </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
               <span className="sampling-summary-chip">{tLoading('sampling.chipTotal', { count: samplingSummary.count })}</span>
               <span className="sampling-summary-chip">
@@ -3009,6 +3263,8 @@ function PreCheckingSections({
                 })}
               </span>
             </div>
+            </>
+            )}
           </>
         ) : (
           <>
@@ -3026,6 +3282,22 @@ function PreCheckingSections({
                 {data.sampling?.endTime ? formatDateTimeDisplay(data.sampling.endTime) : '—'}
               </span>
             </div>
+            {savedSamplingCards.length > 0 ? (
+              <>
+              <SamplingCommodityCards
+                commodities={savedSamplingCards}
+                legacyUnassigned={data.sampling.legacyUnassigned}
+                readOnly
+                variant="hub"
+                sampleRefKind={sampleRefKind}
+                tanks={tanks}
+                renderDocuments={(card) => (
+                  <PrecheckDocumentsRead documents={card.documents} documentsLabel={tLoading('sampling.documents')} />
+                )}
+              />
+              </>
+            ) : (
+            <>
             <PrecheckDocumentsRead documents={data.sampling?.documents} documentsLabel={tLoading('sampling.documents')} />
             <div className="precheck-section__row">
               <span className="precheck-section__label">{tLoading('sampling.qualitySummaryTitle')}</span>
@@ -3037,10 +3309,6 @@ function PreCheckingSections({
                   iodine: data.sampling?.iodineValue || '—',
                 })}
               </span>
-            </div>
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">{tLoading('sampling.remark')}</span>
-              <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
             </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
               <span className="sampling-summary-chip">{tLoading('sampling.chipTotal', { count: samplingSummary.count })}</span>
@@ -3063,7 +3331,7 @@ function PreCheckingSections({
                 <table className="loading-detail-activity-table">
                   <thead>
                     <tr>
-                      <th>{tLoading('sampling.noPalka')}</th>
+                      <th>{tLoading(sampleRefKind === 'tank' ? 'sampling.tank' : 'sampling.noPalka')}</th>
                       <th>{tLoading('sampling.ffa')}</th>
                       <th>{tLoading('sampling.moisture')}</th>
                     </tr>
@@ -3079,6 +3347,8 @@ function PreCheckingSections({
                   </tbody>
                 </table>
               </div>
+            )}
+            </>
             )}
           </>
         )}
@@ -3175,7 +3445,7 @@ function PreCheckingSections({
       </PreCheckSectionCard>
       )}
               </div>
-            </div>
+            </StickyFormOverlay>
           ) : null}
           {/* Nested overlay: the sampling form above already occupies .modal-overlay */}
           <SamplingExtractReviewModal
@@ -3799,11 +4069,11 @@ function PostCheckingSections({
             onActivityLogRefresh={onActivityLogRefresh}
           />
           {formModalOpen ? (
-            <div className="modal-overlay" onClick={cancelEdit} aria-hidden="true">
+            <StickyFormOverlay onClose={cancelEdit}>
               <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Post-Checking form">
                 {activePostTab ? renderSectionCard(activePostTab) : null}
               </div>
-            </div>
+            </StickyFormOverlay>
           ) : null}
         </div>
       </div>
