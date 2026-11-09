@@ -646,6 +646,49 @@ export async function computeHourlyBucketsForLine(db, line, ctx, opts = {}) {
 }
 
 /**
+ * Label for the manual part of a line, so its hours show a tank (and the override cue) in the table.
+ * Several manual tanks share one label because their quantity is entered as one number.
+ * @param {object} line
+ * @param {Array<number|string>} manualTankIds
+ * @returns {{ tankId: string, code: string, manualOverride: boolean, overrideNote: string|null }|null}
+ */
+export function manualTankLabel(line, manualTankIds) {
+  const overridden = new Set((line?.manualOverrideTankIds || []).map(Number));
+  const codes = line?.tankCodeById || {};
+  const tanks = (manualTankIds || []).map((id) => ({ id: Number(id), code: codes[String(id)] ?? null }));
+  if (!tanks.length || tanks.some((t) => !t.code)) return null;
+  return {
+    tankId: tanks.map((t) => t.id).join('+'),
+    code: tanks.map((t) => t.code).join(', '),
+    manualOverride: tanks.some((t) => overridden.has(t.id)),
+    overrideNote: line.manualOverrideNote ?? null,
+  };
+}
+
+/** Give manual hourly buckets a tank entry carrying the whole bucket quantity. */
+export function withManualTankDetail(buckets, label) {
+  if (!label) return buckets;
+  return buckets.map((b) => {
+    const qty = Number(b.qtyMoved) || 0;
+    const displayQty = Number.isFinite(Number(b.displayQtyMoved)) ? Number(b.displayQtyMoved) : qty;
+    return {
+      ...b,
+      tankDetail: [
+        {
+          tankId: label.tankId,
+          code: label.code,
+          qtyMoved: qty,
+          displayQtyMoved: displayQty,
+          manual: true,
+          manualOverride: label.manualOverride,
+          overrideNote: label.overrideNote,
+        },
+      ],
+    };
+  });
+}
+
+/**
  * Allocate manual checkpoint cumulative readings into clock-hour buckets.
  * @param {Array<{ recordedAt: string, cumulativeQty: number }>} checkpoints sorted by time
  * @param {string} windowStart
@@ -969,7 +1012,7 @@ export async function getHourlyBucketsForLineEntry(db, ctx, line, opts = {}) {
         )
       );
     }
-    return mergeHourlyBuckets(bucketLists, thresholds);
+    return withManualTankDetail(mergeHourlyBuckets(bucketLists, thresholds), manualTankLabel(line, line.tankIds));
   }
 
   if (line.endedAt && line.atgHourlyDetail && !opts.forceRecompute) {
@@ -989,12 +1032,15 @@ export async function getHourlyBucketsForLineEntry(db, ctx, line, opts = {}) {
 
   if (mode === 'mixed' && line.manualQty != null && Number(line.manualQty) > 0) {
     bucketLists.push(
-      computeHourlyBucketsFromManualCheckpoints(
-        [{ recordedAt: endIso, cumulativeQty: Number(line.manualQty) }],
-        startIso,
-        endIso,
-        ctx.timezone,
-        ctx
+      withManualTankDetail(
+        computeHourlyBucketsFromManualCheckpoints(
+          [{ recordedAt: endIso, cumulativeQty: Number(line.manualQty) }],
+          startIso,
+          endIso,
+          ctx.timezone,
+          ctx
+        ),
+        manualTankLabel(line, manualTankIds)
       )
     );
   }
