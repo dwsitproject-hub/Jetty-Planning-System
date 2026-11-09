@@ -59,7 +59,7 @@ function sourceChipLabel(source) {
   return String(source).toUpperCase()
 }
 
-export default function FlowEvidencePanel({ row, productKey, timelineEvents }) {
+export default function FlowEvidencePanel({ row, productKey, timelineEvents, active = false }) {
   const summary = useMemo(() => flowEvidenceSummary(row, productKey), [row, productKey])
   const [progress, setProgress] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -108,8 +108,13 @@ export default function FlowEvidencePanel({ row, productKey, timelineEvents }) {
         rows: [
           { label: 'Moved qty (MT)', value: fmtNum(summary.productQtyMt, 0), kind: 'source' },
           {
-            label: 'Logged cargo hours',
+            label: 'Operational hours (first start → last end)',
             value: formatEvidenceComputedHours(summary.loggedCargoHours),
+            kind: 'source',
+          },
+          {
+            label: 'Active cargo hours (segments running)',
+            value: formatEvidenceComputedHours(summary.activeCargoHours),
             kind: 'source',
           },
           {
@@ -129,11 +134,19 @@ export default function FlowEvidencePanel({ row, productKey, timelineEvents }) {
         title: 'Column value',
         rows: [
           {
-            label: EVIDENCE_COMPUTED_LABEL,
+            label: 'Achieved rate',
             value:
               summary.voyageRateMtH == null
                 ? '—'
-                : `${fmtNum(summary.voyageRateMtH)} MT/h (moved ÷ logged hours)`,
+                : `${fmtNum(summary.voyageRateMtH)} MT/h (moved ÷ operational hours)`,
+            kind: 'computed',
+          },
+          {
+            label: 'Active flow rate',
+            value:
+              summary.activeRateMtH == null
+                ? '—'
+                : `${fmtNum(summary.activeRateMtH)} MT/h (moved ÷ active cargo hours)`,
             kind: 'computed',
           },
         ],
@@ -143,15 +156,16 @@ export default function FlowEvidencePanel({ row, productKey, timelineEvents }) {
   )
 
   const sourceLabel = sourceChipLabel(summary.source)
+  const heroRate = active ? summary.activeRateMtH : summary.voyageRateMtH
   const openDayLabel = openDay ? formatDailyRateDateLabel(openDay) : null
 
   return (
     <div className="mgmt-flow-evidence">
       <div className="mgmt-flow-evidence__hero">
         <div className="mgmt-flow-evidence__hero-main">
-          <span className="mgmt-flow-evidence__hero-label">Voyage average</span>
+          <span className="mgmt-flow-evidence__hero-label">{active ? 'Active flow rate' : 'Achieved rate'}</span>
           <span className="mgmt-flow-evidence__hero-rate">
-            {summary.voyageRateMtH == null ? '—' : `${fmtNum(summary.voyageRateMtH)} MT/h`}
+            {heroRate == null ? '—' : `${fmtNum(heroRate)} MT/h`}
           </span>
         </div>
         {sourceLabel ? (

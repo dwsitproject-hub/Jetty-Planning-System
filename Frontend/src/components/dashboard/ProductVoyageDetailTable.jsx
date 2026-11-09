@@ -35,6 +35,8 @@ export const CHART_METRIC_VOYAGE_COLUMN = {
 
   avgRate: 'flow',
 
+  activeRate: 'flow',
+
   avgCargoDoneToSail: 'cargoDoneToSail',
 
 }

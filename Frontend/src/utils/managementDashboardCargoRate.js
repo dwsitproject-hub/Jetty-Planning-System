@@ -15,6 +15,8 @@ export function mergeCargoRatesIntoRow(row, ratesByOpId) {
     voyageRateMtH: v.rateMtH ?? null,
     voyageMovedQty: v.movedQty ?? null,
     voyageLoggedHours: v.loggedHours ?? null,
+    voyageActiveHours: v.activeHours ?? null,
+    voyageActiveRateMtH: v.activeRateMtH ?? null,
     cargoRateSource: v.source ?? null,
     cargoRateAtgPartial: v.atgPartial ?? false,
     productRatesByKey: entry.byProduct ?? {},

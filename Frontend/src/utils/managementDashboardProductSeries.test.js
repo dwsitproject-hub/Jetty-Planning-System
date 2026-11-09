@@ -90,7 +90,7 @@ describe('buildProductTimeSeries', () => {
           qty: 800,
           cargoDoneToSailH: 6,
           commodity: 'CPO',
-          productRatesByKey: { CPO: { rateMtH: 100 } },
+          productRatesByKey: { CPO: { rateMtH: 100, movedQty: 800, loggedHours: 8, activeHours: 4 } },
         },
         {
           castOff: '2026-06-12T12:00:00Z',
@@ -100,7 +100,7 @@ describe('buildProductTimeSeries', () => {
           qty: 1000,
           cargoDoneToSailH: 8,
           commodity: 'CPO',
-          productRatesByKey: { CPO: { rateMtH: 100 } },
+          productRatesByKey: { CPO: { rateMtH: 100, movedQty: 1000, loggedHours: 10, activeHours: 8 } },
         },
       ],
       'CPO',
@@ -112,6 +112,7 @@ describe('buildProductTimeSeries', () => {
     assert.equal(bucket.avgWait, 15)
     assert.equal(bucket.avgPre, 5)
     assert.equal(bucket.avgRate, 100)
+    assert.equal(bucket.activeRate, 150)
     assert.equal(bucket.waitLoggedCount, 2)
     assert.equal(bucket.avgCargoDoneToSail, 7)
   })

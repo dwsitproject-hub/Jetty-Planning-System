@@ -3,7 +3,7 @@
  * Bucket membership selects voyages; each metric uses that voyage's full-call values.
  */
 import { mean } from './managementDashboardFlow.js'
-import { expandVoyageToProductSlices, productKeyFromCommodity } from './managementDashboardProduct.js'
+import { expandVoyageToProductSlices, productKeyFromCommodity, weightedSliceRate } from './managementDashboardProduct.js'
 import { formatDateDisplay } from './formatDateTimeDisplay.js'
 
 const MS_DAY = 86400000
@@ -129,6 +129,7 @@ export function enumerateBuckets(startMs, endMs, granularity) {
         avgWait: null,
         avgPre: null,
         avgRate: null,
+        activeRate: null,
         avgCargoDoneToSail: null,
       })
     }
@@ -144,13 +145,21 @@ function startMsOfNextMonth(ms) {
   return d.getTime()
 }
 
-function sliceRateForProduct(voyage, productKey) {
+function sliceForProduct(voyage, productKey) {
   const pk = productKeyFromCommodity(productKey)
-  const slice = expandVoyageToProductSlices(voyage).find((s) => s.productKey === pk)
-  if (slice?.productRateMtH != null && Number.isFinite(slice.productRateMtH)) return slice.productRateMtH
-  const fromApi = voyage.productRatesByKey?.[pk]?.rateMtH
-  if (fromApi != null && Number.isFinite(fromApi)) return fromApi
-  return null
+  return expandVoyageToProductSlices(voyage).find((s) => s.productKey === pk) ?? null
+}
+
+function finiteOrNull(v) {
+  return v != null && Number.isFinite(v) ? v : null
+}
+
+function sliceRateForProduct(voyage, productKey) {
+  return finiteOrNull(sliceForProduct(voyage, productKey)?.productRateMtH)
+}
+
+function sliceActiveRateForProduct(voyage, productKey) {
+  return finiteOrNull(sliceForProduct(voyage, productKey)?.productActiveRateMtH)
 }
 
 function isLoggedMetric(x) {
@@ -171,6 +180,7 @@ export const CHART_METRIC_VOYAGE_PICK = {
   avgWait: (r, _productKey) => r.wait,
   avgPre: (r, _productKey) => r.pre,
   avgRate: (r, productKey) => sliceRateForProduct(r, productKey),
+  activeRate: (r, productKey) => sliceActiveRateForProduct(r, productKey),
   avgCargoDoneToSail: (r, _productKey) => r.cargoDoneToSailH,
 }
 
@@ -225,17 +235,21 @@ export function buildProductTimeSeries(voyages, productKey, opts) {
     const pickWait = (r) => r.wait
     const pickPre = (r) => r.pre
     const pickRate = (r) => sliceRateForProduct(r, productKey)
+    const pickActive = (r) => sliceActiveRateForProduct(r, productKey)
+    const slices = _voyages.map((v) => sliceForProduct(v, productKey)).filter(Boolean)
     const pickCargo = (r) => r.cargoDoneToSailH
     return {
       ...b,
       voyageCount,
       avgWait: meanPick(_voyages, pickWait),
       avgPre: meanPick(_voyages, pickPre),
-      avgRate: meanPick(_voyages, pickRate),
+      avgRate: weightedSliceRate(slices, 'productLoggedHours'),
+      activeRate: weightedSliceRate(slices, 'productActiveHours'),
       avgCargoDoneToSail: meanPick(_voyages, pickCargo),
       waitLoggedCount: countPick(_voyages, pickWait),
       preLoggedCount: countPick(_voyages, pickPre),
       rateLoggedCount: countPick(_voyages, pickRate),
+      activeRateLoggedCount: countPick(_voyages, pickActive),
       cargoDoneLoggedCount: countPick(_voyages, pickCargo),
     }
   })
@@ -245,6 +259,7 @@ const LOGGED_COUNT_BY_METRIC = {
   avgWait: 'waitLoggedCount',
   avgPre: 'preLoggedCount',
   avgRate: 'rateLoggedCount',
+  activeRate: 'activeRateLoggedCount',
   avgCargoDoneToSail: 'cargoDoneLoggedCount',
 }
 
