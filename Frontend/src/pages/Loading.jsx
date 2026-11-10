@@ -67,7 +67,7 @@ import {
   POST_CHECK_SUB_TABS,
   POST_CHECK_STAGE_IDS,
   isoOrDatetimeToLocal,
-  mergeSingleTimeHydration,
+  mergePostStepHydration,
 } from '../utils/loadingHubProcessStagesFromApi'
 import { mergeDistinctLines } from '../utils/mergeHydrationLines.js'
 import '../styles/allocation.css'
@@ -604,11 +604,11 @@ function Loading() {
             continue
           }
           if (key === 'closing') {
-            bySection.closing = mergeSingleTimeHydration(bySection.closing || {}, row)
+            bySection.closing = mergePostStepHydration(bySection.closing || {}, row)
             continue
           }
           if (key === 'custom_clearance') {
-            bySection.customClearance = mergeSingleTimeHydration(bySection.customClearance || {}, row)
+            bySection.customClearance = mergePostStepHydration(bySection.customClearance || {}, row)
           }
         }
 
@@ -1453,10 +1453,9 @@ const POSTCHECK_RESULT_LABEL = {
   customClearance: 'Custom Clearance Remark',
 }
 
-/** Closing and Custom Clearance are one-time events: one date-time, no start/end range. */
+/** Closing is a one-time event: one date-time, no start/end range. */
 const POSTCHECK_SINGLE_TIME_LABEL = {
   closing: 'Closing Date & Time',
-  customClearance: 'Custom Clearance Date & Time',
 }
 
 /** Closing method is derived from the SI commodity type, like Opening (Solid → Conveyor, Liquid → Hose). */
@@ -1465,11 +1464,13 @@ const closingHandlingMethod = (commodityType) => (commodityType === 'Solid' ? 'C
 const POSTCHECK_START_LABEL = {
   finalInspection: 'Final Inspection Start Time',
   finalCargoChecking: 'Final Cargo Checking Start Time',
+  customClearance: 'Custom Clearance Start Time',
 }
 
 const POSTCHECK_END_LABEL = {
   finalInspection: 'Final Inspection End Time',
   finalCargoChecking: 'Final Cargo Checking End Time',
+  customClearance: 'Custom Clearance End Time',
 }
 
 function mergeFinalInspectionHydration(current, row, commodityType = 'Liquid') {
@@ -3612,7 +3613,7 @@ function PostCheckingSections({
           } else if (section === 'finalCargoChecking') {
             bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType)
           } else {
-            bySection[section] = mergeSingleTimeHydration(current, row)
+            bySection[section] = mergePostStepHydration(current, row)
           }
           bySection[section].documents = [
             ...(bySection[section].documents || []),
