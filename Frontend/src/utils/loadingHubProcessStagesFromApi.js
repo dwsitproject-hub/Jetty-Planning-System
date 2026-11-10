@@ -188,8 +188,8 @@ function mergeFinalCargoCheckingHydration(
   return next
 }
 
-/** Closing / Custom Clearance are one-time events: a single date-time kept in `startTime`. */
-export function mergeSingleTimeHydration(current, row, scheduleIana = getScheduleEntryTimeZone()) {
+/** Closing (single date-time kept in `startTime`) and Custom Clearance (start/end) share this plain-step merge. */
+export function mergePostStepHydration(current, row, scheduleIana = getScheduleEntryTimeZone()) {
   const next = {
     ...current,
     result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
@@ -199,6 +199,10 @@ export function mergeSingleTimeHydration(current, row, scheduleIana = getSchedul
   }
   const at = isoOrDatetimeToLocal(row.occurredAt || row.startAt || row.endAt, scheduleIana)
   if (at) next.startTime = next.startTime || at
+  if (row.endAt) {
+    const en = isoOrDatetimeToLocal(row.endAt, scheduleIana)
+    if (en) next.endTime = next.endTime || en
+  }
   return next
 }
 
@@ -491,7 +495,7 @@ async function buildPostCheckingSnapshotFromApi(
     } else if (section === 'finalCargoChecking') {
       bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType, scheduleIana)
     } else if (section === 'closing' || section === 'customClearance') {
-      bySection[section] = mergeSingleTimeHydration(current, row, scheduleIana)
+      bySection[section] = mergePostStepHydration(current, row, scheduleIana)
     }
     bySection[section].documents = [
       ...(bySection[section].documents || []),

@@ -1733,7 +1733,7 @@ Target sub-process keys for Post-Checking phase:
 - `final_inspection` (merged Final Tank/Hold Inspection; compatibility: legacy rows may still use `final_tank_inspection` / `final_hold_inspection`)
 - `final_sounding` (UI label **Final Cargo Checking** for continuity with existing storage key)
 - `closing` (one-time step; stored as `occurred_at = start_at = end_at` = the chosen date-time, with `remark` and documents). Deliberately **not** in `POST_CHECK_AUTO_KEYS`, `PARTNER_FINAL_CHECK_KEYS` or the Cargo Done template ids, so it never promotes status to `POST_OPS` or moves Cargo Done. Frontend gate `computeAllStagesComplete` includes it via `POST_CHECK_STAGE_IDS`. Closing's `payload_json.cargoHandlingMethod` (`Hose` / `Conveyor`) is derived from SI commodity type; the UI shows it as Hose Off / Conveyor Off.
-- `custom_clearance` (one-time step after `closing`, UI section id `customClearance`; same storage as `closing`: `occurred_at = start_at = end_at`, `remark`, documents). Same exclusions as `closing` (not in `POST_CHECK_AUTO_KEYS`, `PARTNER_FINAL_CHECK_KEYS`, Cargo Done template ids) and included in the sign-off gate via `POST_CHECK_STAGE_IDS`.
+- `custom_clearance` (step after `closing`, UI section id `customClearance`; stored like Final Inspection: `occurred_at = start_at`, separate `end_at`, `remark`, documents). Same exclusions as `closing` (not in `POST_CHECK_AUTO_KEYS`, `PARTNER_FINAL_CHECK_KEYS`, Cargo Done template ids) and included in the sign-off gate via `POST_CHECK_STAGE_IDS`.
 
 Notes:
 
