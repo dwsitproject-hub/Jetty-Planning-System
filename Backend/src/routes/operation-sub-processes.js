@@ -659,7 +659,10 @@ router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', u
     return res.status(code).json({ error: e?.message || 'Invalid file type' });
   }
 
-  const subProcessId = await upsertSubProcess(operationId, phase, key, { phase });
+  // Attach to the existing step as-is: an upsert with no times would clear a Post-Checking
+  // step's start/end (that path fully replaces them). Only create the row when there is none.
+  const existing = await loadSubProcess(operationId, phase, key);
+  const subProcessId = existing ? existing.id : await upsertSubProcess(operationId, phase, key, { phase });
   let commodityId = null;
   if (key === 'sampling' && req.body?.commodityId != null && String(req.body.commodityId).trim() !== '') {
     commodityId = Number(req.body.commodityId);
