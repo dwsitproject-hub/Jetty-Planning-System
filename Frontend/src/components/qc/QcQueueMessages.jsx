@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 
 /** Loading, error (with retry) and empty lines under the queue toolbar. */
 export default function QcQueueMessages({ queue }) {
-  const { t } = useTranslation('qc')
+  const { t } = useTranslation(queue.ns)
   const { loading, error, rows, visible, reload } = queue
   const emptyMessage = rows.length === 0 ? t('queue.noVessels') : t('queue.noMatches')
 

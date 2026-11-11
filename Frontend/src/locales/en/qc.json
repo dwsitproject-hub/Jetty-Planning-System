@@ -32,7 +32,7 @@
     "open": "OPEN ›",
     "tbPrefix": "TB",
     "jettyPrefix": "Jetty",
-    "sampledOf": "{{done}} of {{total}} sampled",
+    "doneOf": "{{done}} of {{total}} sampled",
     "samplesLine": "{{count}} palka",
     "avgFfa": "FFA {{value}}",
     "avgMoisture": "Moist {{value}}",

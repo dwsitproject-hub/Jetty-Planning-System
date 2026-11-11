@@ -11,6 +11,7 @@
   "atBerth": "At-Berth Executions",
   "operatorMode": "Operator Mode",
   "qcSampling": "QC Sampling",
+  "customClearance": "Custom Clearance",
   "clearance": "Clearance",
   "demurrageCalculator": "Demurrage Risk Calculator",
   "reporting": "Reporting",

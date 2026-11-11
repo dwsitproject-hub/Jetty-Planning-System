@@ -22,7 +22,7 @@ test('groupQcQueue merges SIs of one plan and aggregates status', () => {
   assert.equal(groups.length, 2)
   const a = groups.find((g) => g.vesselName === 'MT A')
   assert.deepEqual(a.children.map((c) => c.operationId), [1, 2])
-  assert.equal(a.sampledCount, 1)
+  assert.equal(a.doneCount, 1)
   assert.equal(a.status, 'draft')
   assert.equal(groups.find((g) => g.vesselName === 'MT B').status, 'not_started')
 })
@@ -47,4 +47,11 @@ test('sortQcGroups defaults to earliest TB and sinks vessels without TB', () => 
   ])
   assert.deepEqual(sortQcGroups(groups, 'tb').map((g) => g.vesselName), ['MT Early', 'MT Late', 'MT NoTb'])
   assert.deepEqual(sortQcGroups(groups, 'vesselName').map((g) => g.vesselName), ['MT Early', 'MT Late', 'MT NoTb'])
+})
+
+test('groupQcQueue reads status through a custom accessor', () => {
+  const clearance = (operationId, status) => ({ ...row(operationId, 9, 'MT C', null), clearance: { status } })
+  const [group] = groupQcQueue([clearance(1, 'done'), clearance(2, 'done')], (r) => r.clearance?.status)
+  assert.equal(group.status, 'done')
+  assert.equal(group.doneCount, 2)
 })
