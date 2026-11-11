@@ -2,11 +2,10 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import QcDecisionPill from '../qc/QcDecisionPill'
 import { decisionTone } from '../../utils/samplingCommodity'
-import { metricValue, paramLabel, paramUnit, reportParams, sampleParams, specOf, valueCodesOf } from '../../utils/qcSpec'
+import { metricValue, reportParams, sampleParams, specOf, valueCodesOf } from '../../utils/qcSpec'
 import { matchTankId, tankCodeOf } from '../../utils/samplingSampleRef'
-import { MAX_SAMPLING_PALKA_FIELD_CHARS, MAX_SAMPLING_RECORD_REMARK_CHARS } from '../../constants/inputLimits'
 import CommodityReportSummary from './CommodityReportSummary'
-import SampleRefField from './SampleRefField'
+import SampleEntryRow from './SampleEntryRow'
 import SamplingRecordTable from './SamplingRecordTable'
 
 function newRecordId() {
@@ -44,7 +43,7 @@ export default function SamplingCommodityCards({
   sampleRefKind = 'palka',
   tanks = [],
 }) {
-  const { t, i18n } = useTranslation('loading')
+  const { t } = useTranslation('loading')
   const { t: tQc } = useTranslation('qc')
   const [pending, setPending] = useState(null)
   const [form, setForm] = useState({ commodityId: null, id: null, noPalka: '', tankId: '' })
@@ -108,54 +107,21 @@ export default function SamplingCommodityCards({
                 <h5 className="qc-sample-entry__title">
                   {tQc(sampleRefKind === 'tank' ? 'entry.sectionAddTank' : 'entry.sectionAdd')}
                 </h5>
-                <div
-                  className={
-                    qc
-                      ? 'qc-palka-row'
-                      : `sampling-entry-block__grid sampling-entry-block__grid--palka${sampleRefKind === 'tank' ? ' sampling-entry-block__grid--tank' : ''}`
+                <SampleEntryRow
+                  card={card}
+                  sampleParams={sample}
+                  form={form}
+                  editing={editing}
+                  qc={qc}
+                  inputClass={inputClass}
+                  buttonClass={primary}
+                  sampleRefKind={sampleRefKind}
+                  tanks={tanks}
+                  onChange={(next) =>
+                    setForm((f) => ({ ...emptySampleForm(card), ...f, commodityId: card.commodityId, ...next }))
                   }
-                >
-                  <SampleRefField
-                    kind={sampleRefKind}
-                    tanks={tanks}
-                    tankId={editing ? form.tankId : ''}
-                    noPalka={editing ? form.noPalka : ''}
-                    inputClass={inputClass}
-                    placeholder={t(sampleRefKind === 'tank' ? 'sampling.placeholderTank' : 'sampling.noPalka')}
-                    searchPlaceholder={t('sampling.searchTank')}
-                    maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
-                    onChange={(next) =>
-                      setForm((f) => ({ ...emptySampleForm(card), ...f, commodityId: card.commodityId, ...next }))
-                    }
-                  />
-                  {sample.flatMap((param) =>
-                    valueCodesOf(param).map((code) => (
-                      <input
-                        key={code}
-                        className={inputClass}
-                        value={editing ? form[code] || '' : ''}
-                        placeholder={paramLabel(param, i18n.language)}
-                        aria-label={paramUnit(param) ? `${paramLabel(param, i18n.language)} ${paramUnit(param)}` : paramLabel(param, i18n.language)}
-                        maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...emptySampleForm(card), ...f, commodityId: card.commodityId, [code]: e.target.value }))
-                        }
-                      />
-                    ))
-                  )}
-                  <input
-                    className={`${inputClass} qc-sample-remark`}
-                    value={editing ? form.remark || '' : ''}
-                    placeholder={t('sampling.remark')}
-                    maxLength={MAX_SAMPLING_RECORD_REMARK_CHARS}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...emptySampleForm(card), ...f, commodityId: card.commodityId, remark: e.target.value }))
-                    }
-                  />
-                  <button type="button" className={primary} onClick={() => saveRecord(card)}>
-                    {form.id && editing ? t('sampling.update') : t('sampling.add')}
-                  </button>
-                </div>
+                  onSubmit={() => saveRecord(card)}
+                />
                 <SamplingRecordTable
                   card={card}
                   records={card.records}
