@@ -22,6 +22,7 @@ import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { getSiCommodityOptions } from '../lib/si-commodity-options.js';
 import { getAtBerthCargoProgressSummaries } from '../lib/operational-progress.js';
 import { computeCargoRatesBulk } from '../lib/management-dashboard-cargo-rate.js';
+import { computeHourlyRateProfilesBulk } from '../lib/management-hourly-rate-profile.js';
 import { computeAtBerthFlowPattern } from '../lib/at-berth-flow-pattern.js';
 
 const router = express.Router();
@@ -221,10 +222,14 @@ const OPERATION_ROUTE_SLUGS = new Set([
   'at-berth',
   'pending-signoff-requests',
   'management-cargo-rates',
+  'management-hourly-rates',
 ]);
 
-/** @param {import('express').Request} req @param {import('express').Response} res */
-async function handleManagementCargoRates(req, res) {
+/**
+ * Operation ids from `?ids=` limited to the selected port. Null when ids is missing.
+ * @param {import('express').Request} req
+ */
+async function scopedOperationIdsFromQuery(req) {
   const selectedPortId = Number(req.selectedPortId);
   const idsParam = typeof req.query.ids === 'string' ? req.query.ids.trim() : '';
   const operationIds = idsParam
@@ -233,9 +238,7 @@ async function handleManagementCargoRates(req, res) {
         .map((s) => parseInt(s.trim(), 10))
         .filter((n) => !Number.isNaN(n) && n > 0)
     : [];
-  if (!operationIds.length) {
-    return res.status(400).json({ error: 'ids query parameter is required' });
-  }
+  if (!operationIds.length) return null;
 
   const scopedR = await pool.query(
     `SELECT o.id
@@ -248,12 +251,24 @@ async function handleManagementCargoRates(req, res) {
        AND o.id = ANY($2::int[])`,
     [selectedPortId, operationIds]
   );
-  const scopedIds = scopedR.rows.map((r) => Number(r.id)).filter((n) => n > 0);
-  const payload = await computeCargoRatesBulk(pool, scopedIds);
-  res.json(payload);
+  return scopedR.rows.map((r) => Number(r.id)).filter((n) => n > 0);
+}
+
+/** @param {import('express').Request} req @param {import('express').Response} res */
+async function handleManagementCargoRates(req, res) {
+  const scopedIds = await scopedOperationIdsFromQuery(req);
+  if (!scopedIds) return res.status(400).json({ error: 'ids query parameter is required' });
+  res.json(await computeCargoRatesBulk(pool, scopedIds));
 }
 
 router.get('/management-cargo-rates', handleManagementCargoRates);
+
+/** Hours by hourly rate band + hourly rate series for Management Dashboard By Voyage. */
+router.get('/management-hourly-rates', async (req, res) => {
+  const scopedIds = await scopedOperationIdsFromQuery(req);
+  if (!scopedIds) return res.status(400).json({ error: 'ids query parameter is required' });
+  res.json(await computeHourlyRateProfilesBulk(pool, scopedIds));
+});
 
 router.get('/at-berth', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);

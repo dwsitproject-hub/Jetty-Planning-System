@@ -24,6 +24,7 @@
     "run:purge-tank-gauging-samples": "node scripts/purge-tank-gauging-samples.js",
     "run:aggregate-daily-cargo-progress": "node scripts/aggregate-daily-cargo-progress.js",
     "test:operational-progress": "node --test src/lib/operational-progress.test.js src/lib/cargo-product-progress.test.js src/lib/at-berth-flow-pattern.test.js",
+    "test:mgmt-dashboard-rates": "node --test src/lib/management-dashboard-cargo-rate.test.js src/lib/management-hourly-rate-profile.test.js",
     "test:atg-hourly-progress": "node --test src/lib/atg-hourly-progress.test.js",
     "test:atg-cargo-gaps": "node --test src/lib/atg-cargo-gap-detect.test.js src/lib/atg-cargo-gap-status.test.js src/lib/atg-operation-recovery.test.js src/lib/atg-recovery-diff.test.js src/lib/atg-gap-jobs.test.js src/lib/tank-manual-override.test.js src/lib/cargo-manual-override.test.js",
     "test:cargo-schedule-progress": "node --test src/lib/cargo-schedule-progress.test.js",
