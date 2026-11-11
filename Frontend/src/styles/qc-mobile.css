@@ -167,6 +167,7 @@
 }
 
 .qc-field__value .qc-input,
+.qc-field__value .sample-ref-select,
 .qc-field__value .berthing-modal__input {
   flex: 1;
   min-width: 0;
@@ -654,6 +655,44 @@
   grid-template-columns: minmax(0, 1.3fr) repeat(auto-fit, minmax(72px, 1fr)) minmax(8rem, 1.4fr) auto;
   gap: var(--spacing-2);
   align-items: center;
+}
+
+/* QC entry row: label above each field, responsive grid, remark and Add on their own rows. */
+.qc-palka-row.qc-palka-row--labeled {
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  align-items: start;
+  gap: var(--spacing-3);
+}
+
+.qc-palka-row--labeled .qc-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.qc-palka-row--labeled .qc-field--wide,
+.qc-palka-row--labeled > button {
+  grid-column: 1 / -1;
+}
+
+.qc-palka-row--labeled .qc-field__label {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
+  transition: color 120ms ease;
+}
+
+.qc-palka-row--labeled .qc-field:focus-within .qc-field__label {
+  color: var(--color-primary);
+}
+
+.qc-palka-row--labeled .searchable-select__trigger {
+  min-height: 48px;
+}
+
+.qc-field__required {
+  color: var(--color-etc-breach);
 }
 
 .qc-palka-row .qc-input,
