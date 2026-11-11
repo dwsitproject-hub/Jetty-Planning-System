@@ -481,6 +481,13 @@ export async function fetchManagementCargoRates(ids) {
   }
 }
 
+/** Hours by hourly rate band + hourly rate series per voyage (Management Dashboard By Voyage). */
+export function fetchManagementHourlyRates(ids) {
+  const list = (Array.isArray(ids) ? ids : []).map(Number).filter((n) => Number.isFinite(n) && n > 0)
+  if (!list.length) return Promise.resolve({ profiles: {} })
+  return apiGet(`/operations/management-hourly-rates?ids=${list.join(',')}`)
+}
+
 export function fetchAtBerthFlowPattern(lookbackDays = 14) {
   const n = Number(lookbackDays)
   const q = Number.isFinite(n) && n > 0 ? `?lookbackDays=${n}` : ''
