@@ -1,0 +1,92 @@
+{
+  "shell": {
+    "brand": "Custom Clearance"
+  },
+  "status": {
+    "not_started": "Not started",
+    "draft": "Draft",
+    "done": "Done"
+  },
+  "queue": {
+    "title": "Vessels for custom clearance",
+    "sub": "Berthed vessels. Pick a shipping instruction to record its custom clearance.",
+    "searchPlaceholder": "Search vessel, jetty or SI",
+    "searchLabel": "Search vessels",
+    "filterNeeds": "Needs clearance",
+    "filterDone": "Done",
+    "filterAll": "All",
+    "sortBy": "Sort by",
+    "sortTb": "Berthed first",
+    "sortVesselName": "Vessel name",
+    "sortJetty": "Jetty",
+    "refresh": "Refresh",
+    "loading": "Loading vessels…",
+    "loadingPermissions": "Loading permissions…",
+    "noAccess": "You do not have access to Custom Clearance.",
+    "noVessels": "No berthed vessels right now.",
+    "noMatches": "No vessels match this filter.",
+    "errorLoad": "Failed to load the custom clearance queue",
+    "retry": "Try again",
+    "chooseSi": "Choose SI",
+    "hideSi": "Hide shipping instructions",
+    "open": "OPEN ›",
+    "tbPrefix": "TB",
+    "jettyPrefix": "Jetty",
+    "doneOf": "{{done}} of {{total}} cleared",
+    "window": "{{start}} – {{end}}",
+    "started": "Started {{start}}",
+    "documents": "{{count}} document(s)",
+    "updatedBy": "Updated {{when}} by {{who}}",
+    "updatedAt": "Updated {{when}}"
+  },
+  "workspace": {
+    "selectTitle": "Select a vessel to record custom clearance",
+    "selectHint": "Pick a vessel or shipping instruction from the list on the left."
+  },
+  "entry": {
+    "back": "Back to vessels",
+    "loading": "Loading custom clearance…",
+    "notFound": "Operation not found or not berthed.",
+    "loadFailed": "Failed to load custom clearance data",
+    "noAccess": "You do not have access to Custom Clearance.",
+    "sectionTime": "Clearance",
+    "startTime": "Custom Clearance Start Time",
+    "endTime": "Custom Clearance End Time",
+    "remark": "Remark",
+    "sectionDocuments": "Clearance documents"
+  },
+  "documents": {
+    "takePhoto": "Take photo",
+    "chooseFile": "Choose file",
+    "hint": "Photo, PDF or Excel of the customs documents. At least one is needed to save final.",
+    "filesPending": "{{count}} file(s) will upload on save",
+    "open": "Open",
+    "remove": "Remove",
+    "confirmRemove": "Remove this document from the operation?",
+    "empty": "No documents attached.",
+    "removeError": "Could not remove the document."
+  },
+  "conflict": {
+    "message": "Someone else updated this custom clearance since you opened it. Reload to see their changes, or overwrite with yours.",
+    "reload": "Reload latest",
+    "overwrite": "Overwrite with mine"
+  },
+  "save": {
+    "draft": "Save draft",
+    "final": "Save final",
+    "saving": "Saving…",
+    "savedAt": "Saved {{time}}",
+    "localAt": "Not saved yet {{time}}",
+    "unsaved": "Unsaved changes",
+    "successDraft": "Draft saved.",
+    "error": "Failed to save custom clearance.",
+    "fixErrors": "Fix the highlighted fields before saving."
+  },
+  "error": {
+    "required": "Required to save final.",
+    "beforeStart": "End time must be on or after the start time.",
+    "documents": {
+      "required": "Attach at least one clearance document before saving final."
+    }
+  }
+}

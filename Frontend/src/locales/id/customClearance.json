@@ -1,0 +1,92 @@
+{
+  "shell": {
+    "brand": "Custom Clearance"
+  },
+  "status": {
+    "not_started": "Belum mulai",
+    "draft": "Draf",
+    "done": "Selesai"
+  },
+  "queue": {
+    "title": "Kapal untuk custom clearance",
+    "sub": "Kapal yang sudah sandar. Pilih shipping instruction untuk mencatat custom clearance.",
+    "searchPlaceholder": "Cari kapal, jetty atau SI",
+    "searchLabel": "Cari kapal",
+    "filterNeeds": "Perlu clearance",
+    "filterDone": "Selesai",
+    "filterAll": "Semua",
+    "sortBy": "Urutkan",
+    "sortTb": "Sandar lebih dulu",
+    "sortVesselName": "Nama kapal",
+    "sortJetty": "Jetty",
+    "refresh": "Muat ulang",
+    "loading": "Memuat kapal…",
+    "loadingPermissions": "Memuat izin…",
+    "noAccess": "Anda tidak punya akses ke Custom Clearance.",
+    "noVessels": "Tidak ada kapal yang sandar saat ini.",
+    "noMatches": "Tidak ada kapal yang cocok dengan filter ini.",
+    "errorLoad": "Gagal memuat antrean custom clearance",
+    "retry": "Coba lagi",
+    "chooseSi": "Pilih SI",
+    "hideSi": "Sembunyikan shipping instruction",
+    "open": "BUKA ›",
+    "tbPrefix": "TB",
+    "jettyPrefix": "Jetty",
+    "doneOf": "{{done}} dari {{total}} sudah clearance",
+    "window": "{{start}} – {{end}}",
+    "started": "Mulai {{start}}",
+    "documents": "{{count}} dokumen",
+    "updatedBy": "Diperbarui {{when}} oleh {{who}}",
+    "updatedAt": "Diperbarui {{when}}"
+  },
+  "workspace": {
+    "selectTitle": "Pilih kapal untuk mencatat custom clearance",
+    "selectHint": "Pilih kapal atau shipping instruction dari daftar di sebelah kiri."
+  },
+  "entry": {
+    "back": "Kembali ke daftar kapal",
+    "loading": "Memuat custom clearance…",
+    "notFound": "Operasi tidak ditemukan atau belum sandar.",
+    "loadFailed": "Gagal memuat data custom clearance",
+    "noAccess": "Anda tidak punya akses ke Custom Clearance.",
+    "sectionTime": "Clearance",
+    "startTime": "Waktu Mulai Custom Clearance",
+    "endTime": "Waktu Selesai Custom Clearance",
+    "remark": "Catatan",
+    "sectionDocuments": "Dokumen clearance"
+  },
+  "documents": {
+    "takePhoto": "Ambil foto",
+    "chooseFile": "Pilih file",
+    "hint": "Foto, PDF atau Excel dokumen kepabeanan. Minimal satu dokumen untuk simpan final.",
+    "filesPending": "{{count}} file akan diunggah saat menyimpan",
+    "open": "Buka",
+    "remove": "Hapus",
+    "confirmRemove": "Hapus dokumen ini dari operasi?",
+    "empty": "Belum ada dokumen.",
+    "removeError": "Gagal menghapus dokumen."
+  },
+  "conflict": {
+    "message": "Orang lain memperbarui custom clearance ini sejak Anda membukanya. Muat ulang untuk melihat perubahannya, atau timpa dengan milik Anda.",
+    "reload": "Muat data terbaru",
+    "overwrite": "Timpa dengan milik saya"
+  },
+  "save": {
+    "draft": "Simpan draf",
+    "final": "Simpan final",
+    "saving": "Menyimpan…",
+    "savedAt": "Tersimpan {{time}}",
+    "localAt": "Belum tersimpan {{time}}",
+    "unsaved": "Ada perubahan belum disimpan",
+    "successDraft": "Draf tersimpan.",
+    "error": "Gagal menyimpan custom clearance.",
+    "fixErrors": "Perbaiki kolom yang ditandai sebelum menyimpan."
+  },
+  "error": {
+    "required": "Wajib diisi untuk simpan final.",
+    "beforeStart": "Waktu selesai harus sama atau setelah waktu mulai.",
+    "documents": {
+      "required": "Lampirkan minimal satu dokumen clearance sebelum simpan final."
+    }
+  }
+}

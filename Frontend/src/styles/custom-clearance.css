@@ -16,6 +16,13 @@
   margin-top: var(--spacing-3);
 }
 
+/* Date-time inputs need the full width on phones, or the year is cut off. */
+@media (max-width: 599px) {
+  .operator-mobile .cc-entry__body .qc-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .cc-docs--error .qc-card-block {
   border-color: var(--color-etc-breach);
 }
