@@ -8,8 +8,8 @@ function formatTime(value) {
 }
 
 /** Sticky bottom bar: Save draft / Save final and a saved-state indicator. */
-export default function QcSaveBar({ saving, dirty, lastSavedAt, localSavedAt, onSave }) {
-  const { t } = useTranslation('qc')
+export default function QcSaveBar({ saving, dirty, lastSavedAt, localSavedAt, onSave, ns = 'qc' }) {
+  const { t } = useTranslation(ns)
   let indicator = null
   if (dirty) {
     const local = formatTime(localSavedAt)

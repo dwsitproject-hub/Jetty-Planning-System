@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next'
 
 /** Status banners on the entry screen: restored draft, save conflict, sample error, last message. */
-export default function QcEntryBanners({ entry, message, onOverwrite }) {
-  const { t } = useTranslation('qc')
+export default function QcEntryBanners({ entry, message, onOverwrite, ns = 'qc' }) {
+  const { t } = useTranslation(ns)
 
   return (
     <>

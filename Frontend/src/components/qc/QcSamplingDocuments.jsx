@@ -11,8 +11,8 @@ function hrefFor(url) {
 }
 
 /** Camera/file upload for the quality report, with per-file Extract, Open and Remove. */
-export default function QcSamplingDocuments({ documents, extractingKey, onAddFiles, onRemove, onExtract, keyPrefix = 'sampling' }) {
-  const { t } = useTranslation('qc')
+export default function QcSamplingDocuments({ documents, extractingKey, onAddFiles, onRemove, onExtract, keyPrefix = 'sampling', ns = 'qc' }) {
+  const { t } = useTranslation(ns)
   const { openFilePreview } = useFilePreview()
   const cameraRef = useRef(null)
   const fileRef = useRef(null)
@@ -64,7 +64,7 @@ export default function QcSamplingDocuments({ documents, extractingKey, onAddFil
           <li key={doc.id != null ? `doc-${doc.id}` : `local-${index}-${doc.name}`} className="qc-doc">
             <span className="qc-doc__name">{doc.name}</span>
             <div className="qc-doc__actions">
-              {samplingDocumentIsExtractable(doc) ? (
+              {onExtract && samplingDocumentIsExtractable(doc) ? (
                 <button
                   type="button"
                   className="op-btn op-btn--soft op-btn--compact"

@@ -14,15 +14,21 @@ function groupKey(row) {
   return Number.isFinite(pid) && pid > 0 ? `p-${pid}` : `o-${row?.operationId}`
 }
 
-function groupStatus(children) {
-  const statuses = children.map((c) => c.sampling?.status || 'not_started')
+/** Default status accessor: the QC Sampling queue row. */
+export const samplingStatusOf = (row) => row?.sampling?.status
+
+function groupStatus(children, statusOf) {
+  const statuses = children.map((c) => statusOf(c) || 'not_started')
   if (statuses.every((s) => s === 'done')) return 'done'
   if (statuses.every((s) => s === 'not_started')) return 'not_started'
   return 'draft'
 }
 
-/** Group queue rows by shipment plan so multi-SI vessels become one card with SI rows. */
-export function groupQcQueue(rows) {
+/**
+ * Group queue rows by shipment plan so multi-SI vessels become one card with SI rows.
+ * `statusOf` reads a row's step status, so other field menus (Custom Clearance) reuse the grouping.
+ */
+export function groupQcQueue(rows, statusOf = samplingStatusOf) {
   const order = []
   const map = new Map()
   for (const row of rows || []) {
@@ -45,8 +51,8 @@ export function groupQcQueue(rows) {
       tbMs: times.length ? Math.min(...times) : null,
       purposes: [...new Set(children.map((c) => c.purpose).filter(Boolean))],
       siCount: children.length,
-      sampledCount: children.filter((c) => c.sampling?.status === 'done').length,
-      status: groupStatus(children),
+      doneCount: children.filter((c) => statusOf(c) === 'done').length,
+      status: groupStatus(children, statusOf),
     }
   })
 }

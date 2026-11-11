@@ -8,6 +8,7 @@ export const APP_NAV_ROUTES = [
   { path: '/at-berth', pageKey: 'at-berth' },
   { path: '/operator/at-berth', pageKey: 'operator-at-berth' },
   { path: '/qc/sampling', pageKey: 'quality-control' },
+  { path: '/clearance/custom', pageKey: 'custom-clearance' },
   { path: '/verification', pageKey: 'verification' },
   { path: '/demurrage-risk-calculator', pageKey: 'demurrage-risk-calculator' },
   { path: '/reporting', pageKey: 'reporting' },
@@ -46,6 +47,7 @@ export function pathToPageKey(pathname) {
   if (pathname.startsWith('/at-berth')) return 'at-berth'
   if (pathname.startsWith('/operator')) return 'operator-at-berth'
   if (pathname === '/qc' || pathname.startsWith('/qc/')) return 'quality-control'
+  if (pathname.startsWith('/clearance/custom')) return 'custom-clearance'
   if (pathname.startsWith('/loading/operation')) return 'loading'
   if (pathname.startsWith('/loading') || pathname.startsWith('/unloading')) return 'loading'
   if (pathname.startsWith('/quality')) return 'quality'

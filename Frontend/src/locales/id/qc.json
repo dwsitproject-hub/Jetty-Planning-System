@@ -32,7 +32,7 @@
     "open": "BUKA ›",
     "tbPrefix": "TB",
     "jettyPrefix": "Jetty",
-    "sampledOf": "{{done}} dari {{total}} sudah di-sampling",
+    "doneOf": "{{done}} dari {{total}} sudah di-sampling",
     "samplesLine": "{{count}} palka",
     "avgFfa": "FFA {{value}}",
     "avgMoisture": "Air {{value}}",

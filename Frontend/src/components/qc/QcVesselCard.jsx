@@ -1,10 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import PurposeBadge from '../PurposeBadge'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
-import QcSampleLine from './QcSampleLine'
 import QcStatusChip from './QcStatusChip'
-import QcDecisionPill, { QcDecisionPillRow } from './QcDecisionPill'
-import { collapsedAttention } from '../../utils/samplingCommodity'
 
 export function siLabel(row) {
   return row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`
@@ -15,12 +12,14 @@ export function purposeNode(purposes) {
   return purposes.map((p) => <PurposeBadge key={p} purpose={p} abbrev={purposes.length > 1} />)
 }
 
-/** One vessel call: single-SI cards open directly, multi-SI cards expand into SI rows. */
-export default function QcVesselCard({ group, expanded, onToggle, onOpen }) {
-  const { t } = useTranslation('qc')
+/**
+ * One vessel call on the phone queue: single-SI cards open directly, multi-SI cards expand into SI rows.
+ * `renderDetail(row)` draws the per-SI detail; `groupBadge(group)` an optional collapsed-card badge.
+ */
+export default function QcVesselCard({ group, expanded, onToggle, onOpen, ns, statusOf, renderDetail, groupBadge }) {
+  const { t } = useTranslation(ns)
   const multi = group.siCount > 1
   const head = group.children[0]
-  const attention = collapsedAttention(group.children.flatMap((child) => child.commodities || []))
   const tb = group.tbMs != null ? formatDateTimeDisplay(new Date(group.tbMs).toISOString()) : null
   const activate = () => (multi ? onToggle(group.key) : onOpen(head))
 
@@ -40,7 +39,7 @@ export default function QcVesselCard({ group, expanded, onToggle, onOpen }) {
       >
         <div className="qc-card__top">
           <div className="operator-vessel-card__name">{group.vesselName}</div>
-          <QcStatusChip status={group.status} />
+          <QcStatusChip status={group.status} ns={ns} />
         </div>
         <div className="operator-vessel-card__meta">
           <span className="qc-card__jetty">
@@ -56,18 +55,12 @@ export default function QcVesselCard({ group, expanded, onToggle, onOpen }) {
         {multi ? (
           <>
             <div className="operator-vessel-card__row">
-              {t('queue.sampledOf', { done: group.sampledCount, total: group.siCount })}
+              {t('queue.doneOf', { done: group.doneCount, total: group.siCount })}
             </div>
-            {!expanded && attention ? <QcDecisionPill decision={attention} /> : null}
+            {!expanded && groupBadge ? groupBadge(group) : null}
           </>
         ) : (
-          <>
-            <div className="qc-card__commodity">
-              {head.commodityShortDisplay || head.commodityDisplay || head.commodity || '—'}
-            </div>
-            <QcDecisionPillRow commodities={head.commodities} />
-            <QcSampleLine sampling={head.sampling} />
-          </>
+          renderDetail(head)
         )}
       </div>
 
@@ -90,14 +83,10 @@ export default function QcVesselCard({ group, expanded, onToggle, onOpen }) {
                       <PurposeBadge purpose={child.purpose} loadDischarge={child.loadDischarge} abbrev />
                       <span>{siLabel(child)}</span>
                     </span>
-                    <span className="qc-card__commodity">
-                      {child.commodityShortDisplay || child.commodityDisplay || child.commodity || '—'}
-                    </span>
-                    <QcDecisionPillRow commodities={child.commodities} />
-                    <QcSampleLine sampling={child.sampling} />
+                    {renderDetail(child)}
                   </span>
                   <span className="qc-si-row__side">
-                    <QcStatusChip status={child.sampling?.status} />
+                    <QcStatusChip status={statusOf(child)} ns={ns} />
                     <span>{t('queue.open')}</span>
                   </span>
                 </button>
