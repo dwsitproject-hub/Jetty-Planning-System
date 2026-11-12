@@ -780,3 +780,58 @@
   overflow:auto;
   padding:12px 16px 16px;
 }
+
+/* By Voyage — commodity filter */
+.mgmt-voyage-filter{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 12px}
+.mgmt-voyage-filter__lbl{font-size:12px;color:var(--color-text-steel,#5B6675);margin-right:2px}
+.mgmt-voyage-filter__chip{display:inline-flex;gap:6px;align-items:center;padding:4px 11px;border-radius:999px;border:1px solid var(--color-border,#C9CCD1);background:#fff;font-size:12px;cursor:pointer;color:inherit}
+.mgmt-voyage-filter__chip.is-on{background:#E6F1FB;border-color:#378ADD;color:#0C447C}
+.mgmt-voyage-filter__chip:focus-visible,.mgmt-voyage-filter__more:focus-visible{outline:2px solid var(--mg-brand);outline-offset:1px}
+.mgmt-voyage-filter__n{font-weight:500;color:#8B94A1}
+.mgmt-voyage-filter__chip.is-on .mgmt-voyage-filter__n{color:#185FA5}
+.mgmt-voyage-filter__more{font-size:12px;border-radius:999px;padding:3px 8px;border:1px solid var(--color-border,#C9CCD1);background:#fff}
+.mgmt-voyage-filter__count{margin-left:auto;font-size:12px;color:var(--color-text-steel,#5B6675)}
+.mgmt-voyage-filter__clear{border:0;background:none;padding:0;color:#185FA5;cursor:pointer;font-size:12px;text-decoration:underline}
+
+/* By Voyage — Hours by rate column */
+.mgmt-product-voyage-table th.mgmt-voyage-th--rate-hours{min-width:250px;vertical-align:bottom;text-align:center}
+.mgmt-product-voyage-table td.mgmt-voyage-col--rate-hours{min-width:230px}
+.mgmt-rate-head{display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap}
+.mgmt-rate-toggle{display:inline-flex;border:1px solid var(--color-border,#C9CCD1);border-radius:999px;overflow:hidden}
+.mgmt-rate-toggle button{border:0;background:#fff;padding:1px 9px;font-size:11px;cursor:pointer;color:var(--color-text-steel,#5B6675)}
+.mgmt-rate-toggle button.is-on{background:#E6F1FB;color:#0C447C}
+.mgmt-rate-legend{display:grid;grid-template-columns:repeat(2,auto);gap:2px 12px;justify-content:center;margin-top:6px;font-size:10.5px;font-weight:400;color:var(--color-text-steel,#5B6675);text-align:left;white-space:nowrap}
+.mgmt-rate-legend b{font-weight:600;color:var(--color-text,#1F2A37)}
+.mgmt-rate-legend--line{grid-template-columns:auto}
+.mgmt-rate-legend__line,.mgmt-rate-legend__dash{display:inline-block;width:14px;margin-right:4px;vertical-align:3px}
+.mgmt-rate-legend__line{height:2px;background:#185FA5}
+.mgmt-rate-legend__dash{border-top:1.5px dashed #185FA5}
+.mgmt-rate-legend__note{font-size:10.5px;font-weight:400;color:#8B94A1;margin-top:4px}
+.mgmt-rate-swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.mgmt-rate-empty{font-size:12px}
+.mgmt-rate-caption{font-size:11px;color:#8B94A1;margin-top:3px;white-space:nowrap}
+.mgmt-rate-bar{display:flex;gap:1px;height:12px;border-radius:3px;overflow:hidden;background:var(--mg-track);min-width:160px}
+.mgmt-rate-bar span{display:block;height:100%}
+.mgmt-rate-pie{width:52px;height:52px;border-radius:50%;flex:none}
+.mgmt-rate-pie--lg{width:140px;height:140px}
+.mgmt-rate-pie-cell{display:flex;gap:10px;align-items:center}
+.mgmt-rate-list{font-size:11px;line-height:1.45}
+.mgmt-rate-list__row{display:grid;grid-template-columns:82px 40px 32px;gap:4px;white-space:nowrap}
+.mgmt-rate-list__total{border-top:1px solid var(--mg-track);margin-top:2px;padding-top:1px;color:var(--color-text-steel,#5B6675)}
+.mgmt-rate-spark{display:block;overflow:visible}
+.mgmt-rate-spark__line{fill:none;stroke:#185FA5;stroke-width:1.75;stroke-linejoin:round;stroke-linecap:round}
+.mgmt-rate-spark__area{fill:#378ADD;opacity:.12}
+.mgmt-rate-spark__noflow{fill:#B4B2A9;opacity:.22}
+.mgmt-rate-spark__fast{stroke:#185FA5;stroke-dasharray:3 3;opacity:.7}
+.mgmt-rate-spark__fast-lbl{font-size:10px;fill:#185FA5}
+.mgmt-rate-spark__grid{stroke:#E3E5E1}
+.mgmt-rate-spark__tick{font-size:10px;fill:#8B94A1}
+.mgmt-rate-breakdown{position:sticky;left:14px;max-width:min(620px,calc(100vw - 140px))}
+.mgmt-rate-breakdown__head{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;font-size:12px}
+.mgmt-rate-breakdown__summary{font-size:12.5px;margin:6px 0 10px}
+.mgmt-rate-breakdown__body{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+.mgmt-rate-breakdown__list{font-size:12.5px}
+.mgmt-rate-breakdown__row{display:grid;grid-template-columns:150px 64px 44px;gap:8px;align-items:center;margin:3px 0}
+.mgmt-rate-breakdown__track{display:block;width:180px;height:10px;background:var(--mg-track);border-radius:3px;overflow:hidden}
+.mgmt-rate-breakdown__track span{display:block;height:100%}
+.mgmt-rate-breakdown__row--track{grid-template-columns:150px 180px 64px 44px}

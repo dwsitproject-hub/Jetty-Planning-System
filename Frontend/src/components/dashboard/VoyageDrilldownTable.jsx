@@ -11,9 +11,18 @@ import {
 } from '../../utils/managementDashboardMetricEvidence.js'
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
 import ProductMetricEvidenceRow from './ProductMetricEvidenceRow.jsx'
+import VoyageCommodityFilter from './VoyageCommodityFilter.jsx'
+import { HourlyRateBreakdownRow, HourlyRateCell, HoursByRateHeader } from './HourlyRateCell.jsx'
+import useHourlyRateProfiles from '../../hooks/useHourlyRateProfiles.js'
+import {
+  commodityFilterOptions,
+  fastShare,
+  filterVoyagesByCommodity,
+  lineScaleMax,
+} from '../../utils/hourlyRateBands.js'
 
 const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'activeFlow', 'cargoDoneToSail']
-const COL_SPAN = 11
+const COL_SPAN = 12
 
 function fmtNum(n, d = 1) {
   return n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d })
@@ -79,6 +88,7 @@ const VOYAGE_COLUMNS = [
   { key: 'pre', label: 'Berth → start cargo', align: 'right', sortValue: (r) => r.pre },
   { key: 'flow', label: 'Achieved rate', align: 'right', sortValue: (r) => voyageFlowRate(r) },
   { key: 'activeFlow', label: 'Active rate', align: 'right', sortValue: (r) => voyageActiveFlowRate(r) },
+  { key: 'hoursByRate', label: 'Hours by rate', sortValue: (r) => fastShare(r.hourlyProfile) },
   { key: 'cargoDoneToSail', label: 'Cargo done → sailed off', align: 'right', sortValue: (r) => r.cargoDoneToSailH },
   {
     key: 'dateCompleted',
@@ -163,12 +173,16 @@ function VoyageBlock({
   onToggle,
   opDetailsById,
   timelinesByOpId,
+  rateView,
+  onRateViewChange,
+  profilesLoading,
 }) {
   const [sort, setSort] = useState(null)
   const onSort = useCallback((key) => {
     setSort((prev) => (prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
   }, [])
   const sorted = useMemo(() => sortModalRows(rows, VOYAGE_COLUMNS, sort), [rows, sort])
+  const scaleMax = useMemo(() => lineScaleMax(rows), [rows])
 
   if (!sorted.length) {
     return (
@@ -212,9 +226,19 @@ function VoyageBlock({
         <table className="data-table mgmt-product-voyage-table">
           <thead>
             <tr>
-              {VOYAGE_COLUMNS.map((column) => (
-                <SortHeader key={column.key} column={column} sort={sort} onSort={onSort} />
-              ))}
+              {VOYAGE_COLUMNS.map((column) =>
+                column.key === 'hoursByRate' ? (
+                  <HoursByRateHeader
+                    key={column.key}
+                    view={rateView}
+                    onViewChange={onRateViewChange}
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                ) : (
+                  <SortHeader key={column.key} column={column} sort={sort} onSort={onSort} />
+                ),
+              )}
             </tr>
           </thead>
           <tbody>
@@ -223,6 +247,7 @@ function VoyageBlock({
               const rate = voyageFlowRate(r)
               const activeRate = voyageActiveFlowRate(r)
               const show = expanded?.rowKey === rk && METRIC_COLUMNS.includes(expanded.columnKey)
+              const showRateBreakdown = expanded?.rowKey === rk && expanded.columnKey === 'hoursByRate'
               return (
                 <Fragment key={rk}>
                   <tr>
@@ -238,6 +263,19 @@ function VoyageBlock({
                     <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>
                     <td {...metricProps(rk, 'flow')}>{rate == null ? '—' : `${fmtNum(rate, 1)} MT/h`}</td>
                     <td {...metricProps(rk, 'activeFlow')}>{activeRate == null ? '—' : `${fmtNum(activeRate, 1)} MT/h`}</td>
+                    <td
+                      {...(r.hourlyProfile ? metricProps(rk, 'hoursByRate') : {})}
+                      className={`mgmt-voyage-col--rate-hours${r.hourlyProfile ? ' mgmt-product-voyage-metric-cell' : ''}${showRateBreakdown ? ' mgmt-product-voyage-metric-cell--open' : ''}`}
+                      title={r.hourlyProfile ? 'Show hours by rate breakdown' : undefined}
+                    >
+                      <HourlyRateCell
+                        profile={r.hourlyProfile}
+                        view={rateView}
+                        scaleMax={scaleMax}
+                        loading={profilesLoading}
+                        manual={r.cargoRateSource === 'manual'}
+                      />
+                    </td>
                     <td {...metricProps(rk, 'cargoDoneToSail')}>{fmtMgmtDurationHours(r.cargoDoneToSailH)}</td>
                     <td className={voyageTdClass('dateCompleted')}>{fmtMgmtCastOffDate(r.castOff)}</td>
                     <td>{statusChip(r)}</td>
@@ -250,6 +288,9 @@ function VoyageBlock({
                       timelinesByOpId={timelinesByOpId}
                       colSpan={COL_SPAN}
                     />
+                  ) : null}
+                  {showRateBreakdown ? (
+                    <HourlyRateBreakdownRow row={r} view={rateView} scaleMax={scaleMax} colSpan={COL_SPAN} />
                   ) : null}
                 </Fragment>
               )
@@ -268,7 +309,19 @@ export default function VoyageDrilldownTable({
   showIncoming = true,
   showOutgoing = true,
 }) {
-  const list = Array.isArray(rows) ? rows : []
+  const allRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows])
+  const [commodities, setCommodities] = useState(() => new Set())
+  const [rateView, setRateView] = useState('pie')
+  const { profilesById, loading: profilesLoading } = useHourlyRateProfiles(allRows)
+  const options = useMemo(() => commodityFilterOptions(allRows), [allRows])
+  const list = useMemo(
+    () =>
+      filterVoyagesByCommodity(allRows, commodities).map((r) => ({
+        ...r,
+        hourlyProfile: profilesById[String(r.id)] ?? null,
+      })),
+    [allRows, commodities, profilesById],
+  )
   const incoming = list.filter((r) => r.purpose !== 'Loading')
   const outgoing = list.filter((r) => r.purpose === 'Loading')
   const [expanded, setExpanded] = useState(null)
@@ -279,21 +332,43 @@ export default function VoyageDrilldownTable({
   }, [])
 
   if (!showIncoming && !showOutgoing) return null
+  const filter = (
+    <VoyageCommodityFilter
+      options={options}
+      selected={commodities}
+      onChange={setCommodities}
+      shown={list.length}
+      total={allRows.length}
+    />
+  )
   if ((showIncoming ? incoming.length : 0) + (showOutgoing ? outgoing.length : 0) === 0) {
-    return <p className="text-steel">No voyages in this view.</p>
+    return (
+      <>
+        {filter}
+        <p className="text-steel">No voyages in this view.</p>
+      </>
+    )
+  }
+
+  const blockProps = {
+    expanded,
+    onToggle,
+    opDetailsById,
+    timelinesByOpId,
+    rateView,
+    onRateViewChange: setRateView,
+    profilesLoading,
   }
 
   return (
     <div className="mgmt-product-tables">
+      {filter}
       {showIncoming ? (
         <VoyageBlock
           title="Incoming"
           chipClass="mgmt-chip--disch"
           rows={incoming}
-          expanded={expanded}
-          onToggle={onToggle}
-          opDetailsById={opDetailsById}
-          timelinesByOpId={timelinesByOpId}
+          {...blockProps}
         />
       ) : null}
       {showOutgoing ? (
@@ -301,10 +376,7 @@ export default function VoyageDrilldownTable({
           title="Outgoing"
           chipClass="mgmt-chip--load"
           rows={outgoing}
-          expanded={expanded}
-          onToggle={onToggle}
-          opDetailsById={opDetailsById}
-          timelinesByOpId={timelinesByOpId}
+          {...blockProps}
         />
       ) : null}
     </div>
