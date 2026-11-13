@@ -6,7 +6,7 @@ const SORT_LABEL_KEYS = { tb: 'queue.sortTb', vesselName: 'queue.sortVesselName'
 
 /** Filter chips, search, sort and refresh for the queue (phone page and desktop pane). */
 export default function QcQueueToolbar({ queue }) {
-  const { t } = useTranslation('qc')
+  const { t } = useTranslation(queue.ns)
   const { filter, setFilter, search, setSearch, sortBy, setSortBy, loading, reload } = queue
 
   return (

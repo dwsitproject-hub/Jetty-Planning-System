@@ -29,6 +29,7 @@ import OperatorMobileShell from './components/operator/OperatorMobileShell'
 import OperatorAtBerthQueue from './pages/operator/OperatorAtBerthQueue'
 import OperatorExecutionPage from './pages/operator/OperatorExecutionPage'
 import QcSamplingRoute from './pages/qc/QcSamplingRoute'
+import CustomClearanceRoute from './pages/clearance/CustomClearanceRoute'
 import { DESKTOP_QUERY, useMediaQuery } from './hooks/useMediaQuery'
 import Quality from './pages/Quality'
 import Verification from './pages/Verification'
@@ -77,8 +78,10 @@ function AppShell() {
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
   const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
   const { t: tQc } = useTranslation('qc')
+  const { t: tCc } = useTranslation('customClearance')
   const isOperator = location.pathname.startsWith('/operator')
   const isQc = location.pathname.startsWith('/qc')
+  const isCustomClearance = location.pathname.startsWith('/clearance/custom')
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const isEmbed = isEmbedMode(location.search)
   const isChromelessEmbed =
@@ -96,10 +99,10 @@ function AppShell() {
   if (isChromelessEmbed) {
     return <RoutedOutlet />
   }
-  // QC Sampling uses the standard layout with side menu on desktop and the phone frame below 1024px.
-  if (isOperator || (isQc && !isDesktop)) {
+  // QC Sampling and Custom Clearance use the standard layout with side menu on desktop and the phone frame below 1024px.
+  if (isOperator || ((isQc || isCustomClearance) && !isDesktop)) {
     return (
-      <OperatorMobileShell brand={isQc ? tQc('shell.brand') : undefined}>
+      <OperatorMobileShell brand={isQc ? tQc('shell.brand') : isCustomClearance ? tCc('shell.brand') : undefined}>
         <RoutedOutlet />
       </OperatorMobileShell>
     )
@@ -180,6 +183,7 @@ function App() {
                   <Route path="/operator/execution/:operationId" element={<OperatorExecutionPage />} />
                   <Route path="/qc" element={<Navigate to="/qc/sampling" replace />} />
                   <Route path="/qc/sampling/:operationId?" element={<QcSamplingRoute />} />
+                  <Route path="/clearance/custom/:operationId?" element={<CustomClearanceRoute />} />
                   <Route path="/loading/operation/:operationId" element={<LoadingOperation />} />
                   <Route path="/loading" element={<Loading />} />
                   <Route path="/loading/:vesselId" element={<Loading />} />

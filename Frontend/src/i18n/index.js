@@ -32,6 +32,8 @@ import enOperator from '../locales/en/operator.json'
 import idOperator from '../locales/id/operator.json'
 import enQc from '../locales/en/qc.json'
 import idQc from '../locales/id/qc.json'
+import enCustomClearance from '../locales/en/customClearance.json'
+import idCustomClearance from '../locales/id/customClearance.json'
 
 export function getInitialLanguage() {
   try {
@@ -64,6 +66,7 @@ i18n.use(initReactI18next).init({
       filePreview: enFilePreview,
       operator: enOperator,
       qc: enQc,
+      customClearance: enCustomClearance,
     },
     id: {
       common: idCommon,
@@ -81,12 +84,13 @@ i18n.use(initReactI18next).init({
       filePreview: idFilePreview,
       operator: idOperator,
       qc: idQc,
+      customClearance: idCustomClearance,
     },
   },
   lng: getInitialLanguage(),
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'loading', 'notifications', 'filePreview', 'operator', 'qc'],
+  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'loading', 'notifications', 'filePreview', 'operator', 'qc', 'customClearance'],
   interpolation: {
     escapeValue: false,
   },

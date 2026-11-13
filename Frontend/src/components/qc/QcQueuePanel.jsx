@@ -3,9 +3,9 @@ import QcQueueMessages from './QcQueueMessages'
 import QcQueueRow from './QcQueueRow'
 import QcQueueToolbar from './QcQueueToolbar'
 
-/** Desktop queue pane: toolbar plus compact selectable rows. `queue` comes from `useQcSamplingQueue`. */
-export default function QcQueuePanel({ queue, selectedOperationId, onSelect }) {
-  const { t } = useTranslation('qc')
+/** Desktop queue pane: toolbar plus compact selectable rows. `queue` comes from `useFieldQueue`. */
+export default function QcQueuePanel({ queue, selectedOperationId, onSelect, renderDetail }) {
+  const { t } = useTranslation(queue.ns)
 
   return (
     <div className="qc-queue-panel">
@@ -24,6 +24,9 @@ export default function QcQueuePanel({ queue, selectedOperationId, onSelect }) {
               onToggle={queue.toggleExpand}
               selectedOperationId={selectedOperationId}
               onSelect={onSelect}
+              ns={queue.ns}
+              statusOf={queue.statusOf}
+              renderDetail={renderDetail}
             />
           ))}
         </ul>

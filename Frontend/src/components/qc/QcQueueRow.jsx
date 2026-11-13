@@ -1,17 +1,15 @@
 import { useTranslation } from 'react-i18next'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
-import { QcDecisionPillRow } from './QcDecisionPill'
-import QcSampleLine from './QcSampleLine'
 import QcStatusChip from './QcStatusChip'
 import { purposeNode, siLabel } from './QcVesselCard'
 
-function commodityLabel(row) {
-  return row.commodityShortDisplay || row.commodityDisplay || row.commodity || '—'
-}
-
-/** Compact, selectable queue entry for the desktop pane. Multi-SI vessels expand into SI rows. */
-export default function QcQueueRow({ group, expanded, onToggle, selectedOperationId, onSelect }) {
-  const { t } = useTranslation('qc')
+/**
+ * Compact, selectable queue entry for the desktop pane. Multi-SI vessels expand into SI rows.
+ * `ns`, `statusOf` and `renderDetail` let each field menu (QC Sampling, Custom Clearance) supply
+ * its own wording, step status and per-SI detail.
+ */
+export default function QcQueueRow({ group, expanded, onToggle, selectedOperationId, onSelect, ns, statusOf, renderDetail }) {
+  const { t } = useTranslation(ns)
   const multi = group.siCount > 1
   const head = group.children[0]
   const holdsSelection = group.children.some((c) => c.operationId === selectedOperationId)
@@ -30,7 +28,7 @@ export default function QcQueueRow({ group, expanded, onToggle, selectedOperatio
       >
         <span className="qc-row__top">
           <span className="qc-row__name">{group.vesselName}</span>
-          <QcStatusChip status={group.status} />
+          <QcStatusChip status={group.status} ns={ns} />
         </span>
         <span className="qc-row__meta">
           <span className="qc-card__jetty">
@@ -44,13 +42,9 @@ export default function QcQueueRow({ group, expanded, onToggle, selectedOperatio
           ) : null}
         </span>
         {multi ? (
-          <span className="qc-row__meta">{t('queue.sampledOf', { done: group.sampledCount, total: group.siCount })}</span>
+          <span className="qc-row__meta">{t('queue.doneOf', { done: group.doneCount, total: group.siCount })}</span>
         ) : (
-          <>
-            <span className="qc-card__commodity">{commodityLabel(head)}</span>
-            <QcDecisionPillRow commodities={head.commodities} />
-            <QcSampleLine sampling={head.sampling} />
-          </>
+          renderDetail(head)
         )}
       </button>
 
@@ -70,11 +64,9 @@ export default function QcQueueRow({ group, expanded, onToggle, selectedOperatio
                     <span className="operator-vessel-card__child-main">
                       <span>{siLabel(child)}</span>
                     </span>
-                    <QcStatusChip status={child.sampling?.status} />
+                    <QcStatusChip status={statusOf(child)} ns={ns} />
                   </span>
-                  <span className="qc-card__commodity">{commodityLabel(child)}</span>
-                  <QcDecisionPillRow commodities={child.commodities} />
-                  <QcSampleLine sampling={child.sampling} />
+                  {renderDetail(child)}
                 </button>
               </li>
             )

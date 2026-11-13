@@ -1,0 +1,33 @@
+/* Custom Clearance entry: same labelled-field pattern as the QC sample row (label above, highlighted while typing). */
+.operator-mobile .cc-field__label {
+  font-weight: var(--font-weight-semibold);
+  transition: color 120ms ease;
+}
+
+.operator-mobile .cc-field:focus-within .cc-field__label {
+  color: var(--color-primary);
+}
+
+.cc-field__required {
+  color: var(--color-etc-breach);
+}
+
+.cc-entry__body .qc-card-block > .cc-field {
+  margin-top: var(--spacing-3);
+}
+
+/* Date-time inputs need the full width on phones, or the year is cut off. */
+@media (max-width: 599px) {
+  .operator-mobile .cc-entry__body .qc-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.cc-docs--error .qc-card-block {
+  border-color: var(--color-etc-breach);
+}
+
+.cc-docs__error {
+  display: block;
+  margin: var(--spacing-1) 0 0;
+}
