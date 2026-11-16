@@ -326,14 +326,24 @@ function instantMs(v) {
   return Number.isNaN(t) ? null : t;
 }
 
+/** True when Hose On (Opening), Hose Off (Closing), or Cargo Done moved. */
+export function partnerScheduleTimesChanged(before, after) {
+  if (!before || !after) return false;
+  return (
+    instantMs(before.startAt) !== instantMs(after.startAt) ||
+    instantMs(before.endAt) !== instantMs(after.endAt) ||
+    instantMs(before.doneAt) !== instantMs(after.doneAt)
+  );
+}
+
 /**
- * After a final check changes, push only when the partner Cargo Done instant actually moved.
+ * Push schedule.updated when Opening, Closing, or Cargo Done changed.
  * @param {number} operationId
- * @param {{ doneAt?: Date | string | null } | null} before result of resolvePartnerCargoOpsWindow before the change
+ * @param {{ startAt?: Date | string | null, endAt?: Date | string | null, doneAt?: Date | string | null } | null} before
  */
-export async function triggerPartnerScheduleIfCargoDoneChanged(operationId, before) {
+export async function triggerPartnerScheduleIfPartnerTimesChanged(operationId, before) {
   const after = await resolvePartnerCargoOpsWindow(pool, operationId);
-  if (instantMs(before?.doneAt) === instantMs(after.doneAt)) return;
+  if (!partnerScheduleTimesChanged(before, after)) return;
   await triggerPartnerScheduleWebhookForOperation(operationId);
 }
 

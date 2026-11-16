@@ -86,6 +86,40 @@ describe('integration-hub-resolve', () => {
     assert.equal(normalizeCargoShortName('cpo'), 'CPO');
   });
 
+  it('resolveCargoCommodities accepts an inactive hub code and rejects an unknown one', async () => {
+    const inactive = await resolveCargoCommodities(
+      {
+        async query(sql) {
+          if (!sql.includes('c.hub_code = ANY')) return { rows: [] };
+          assert.equal(sql.includes('is_active'), false);
+          return {
+            rows: [
+              {
+                id: 11,
+                short_name: null,
+                hub_code: 'CMD-0099',
+                commodity_type: null,
+                default_metric_id: null,
+                default_metric_code: null,
+              },
+            ],
+          };
+        },
+      },
+      [{ cargoType: null, cargoHubCode: 'CMD-0099', tonnage: 1, unit: 'MT' }]
+    );
+    assert.equal(inactive.errors.length, 0);
+    assert.equal(inactive.cargo[0].commodity.id, 11);
+    assert.equal(inactive.commodityByShortName.size, 0);
+
+    const missing = await resolveCargoCommodities(
+      { async query() { return { rows: [] }; } },
+      [{ cargoType: null, cargoHubCode: 'CMD-MISSING', tonnage: 1, unit: 'MT' }]
+    );
+    assert.equal(missing.cargo.length, 0);
+    assert.match(missing.errors[0].issue, /unknown cargo hub code: CMD-MISSING/);
+  });
+
   it('resolveCargoCommodities map includes hub-only lines', async () => {
     const db = {
       async query(sql) {

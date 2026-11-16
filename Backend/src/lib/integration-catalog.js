@@ -97,7 +97,7 @@ function shippingInstructionResponseFields() {
     }),
     readOnly('schedule', 'OBJECT', {
       description:
-        'GET and webhook data. Timestamps are ISO 8601 UTC. cargo_ops_start_at and cargo_ops_end_at are Hose On and Hose Off. cast_off_at is vessel cast-off, not Hose Off.',
+        'GET and webhook data. Timestamps are ISO 8601 UTC. cargo_ops_start_at is Hose On (Opening). cargo_ops_end_at is Hose Off (Closing). cast_off_at is vessel cast-off, not Hose Off.',
       items: [
         readOnly('eta', 'DATETIME'),
         readOnly('ta', 'DATETIME', { description: 'Actual time of arrival.' }),
@@ -107,8 +107,8 @@ function shippingInstructionResponseFields() {
         readOnly('tc', 'DATETIME', { description: 'Time of completion.' }),
         readOnly('cast_off_at', 'DATETIME', { description: 'Vessel cast-off. Not Hose Off.' }),
         readOnly('sailed_at', 'DATETIME'),
-        readOnly('cargo_ops_start_at', 'DATETIME', { description: 'Hose On. Cargo Operations window start.' }),
-        readOnly('cargo_ops_end_at', 'DATETIME', { description: 'Hose Off. Cargo Operations window end.' }),
+        readOnly('cargo_ops_start_at', 'DATETIME', { description: 'Hose On. Earliest Opening start. Also sets status Start Cargo.' }),
+        readOnly('cargo_ops_end_at', 'DATETIME', { description: 'Hose Off. Closing time.' }),
         readOnly('cargo_done_at', 'DATETIME', {
           description:
             'Cargo Done. Latest end among cargo operations, final inspection, and final sounding (same as the JPS management dashboard). Null while a cargo operations segment is still open.',

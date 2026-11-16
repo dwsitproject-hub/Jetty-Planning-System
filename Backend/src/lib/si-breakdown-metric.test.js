@@ -26,6 +26,16 @@ describe('validateIntegrationCargoMetricRules', () => {
     assert.equal(issues[0].expected_unit, 'KL');
   });
 
+  it('uses the commodity attached to the line when the short name is empty', () => {
+    const issues = validateIntegrationCargoMetricRules(
+      [{ cargoType: null, cargoHubCode: 'CMD-0099', unit: 'MT', commodity: { id: 11, default_metric_id: 2, default_metric_code: 'KL' } }],
+      new Map(),
+      normalize
+    );
+    assert.equal(issues[0].expected_unit, 'KL');
+    assert.match(issues[0].issue, /CMD-0099/);
+  });
+
   it('passes when unit matches default', () => {
     const map = new Map([
       ['FAME', { id: 4, default_metric_id: 1, default_metric_code: 'KL' }],

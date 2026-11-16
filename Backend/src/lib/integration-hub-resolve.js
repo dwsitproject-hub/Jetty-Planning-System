@@ -194,7 +194,7 @@ export async function resolveCargoCommodities(db, cargoLines) {
   if (hubCodes.length > 0) {
     const r = await db.query(
       `${COMMODITY_SELECT}
-       WHERE c.hub_code = ANY($1) AND c.deleted_at IS NULL AND c.is_active = TRUE`,
+       WHERE c.hub_code = ANY($1) AND c.deleted_at IS NULL`,
       [hubCodes]
     );
     for (const row of r.rows) byHub.set(String(row.hub_code), row);
@@ -247,6 +247,7 @@ export async function resolveCargoCommodities(db, cargoLines) {
       ...line,
       cargoType: row.short_name,
       cargoHubCode: line.cargoHubCode ?? row.hub_code ?? null,
+      commodity: row,
     });
   }
 
@@ -257,13 +258,7 @@ export async function resolveCargoCommodities(db, cargoLines) {
   const commodityByShortName = new Map();
   for (const line of resolvedCargo) {
     const key = normalizeCargoShortName(line.cargoType);
-    // Resolved lines may echo hub_code from master even when partner sent cargo_type only;
-    // byHub is only prefetched from submitted hub codes, so prefer byShort (canonical short_name).
-    let row = byShort.get(key);
-    if (!row && line.cargoHubCode) {
-      row = byHub.get(line.cargoHubCode) ?? null;
-    }
-    if (row) commodityByShortName.set(key, row);
+    if (key && line.commodity) commodityByShortName.set(key, line.commodity);
   }
 
   return { errors: [], commodityByShortName, cargo: resolvedCargo };

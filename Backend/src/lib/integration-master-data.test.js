@@ -45,7 +45,7 @@ describe('integration-master-data', () => {
         'Berthed'
       );
     });
-    it('returns Start Cargo once the cargo window has started, even before cargo ops status moves', () => {
+    it('returns Start Cargo once Opening is recorded, even before cargo ops status moves', () => {
       assert.equal(
         deriveExternalStatus({
           ...approved,
@@ -145,10 +145,12 @@ describe('integration-master-data', () => {
     });
   });
 
-  it('PARTNER_SUBMISSION_LOOKUP_SQL uses cargo_operations window subselects', () => {
-    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /milestone_key = 'cargo_operations'/);
+  it('PARTNER_SUBMISSION_LOOKUP_SQL uses Opening for Hose On and Closing for Hose Off', () => {
+    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /milestone_key = 'opening_hatch'/);
+    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /sub_process_key = 'closing'/);
     assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_ops_window_start_at/);
     assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_ops_window_end_at/);
+    assert.match(PARTNER_CARGO_DONE_SUBSELECT, /milestone_key = 'cargo_operations'/);
   });
 
   it('resolvePartnerCargoOpsWindow queries by operation id', async () => {

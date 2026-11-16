@@ -20,7 +20,7 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { assertNotStale } from '../lib/optimistic-lock.js';
 import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
-import { triggerPartnerScheduleIfCargoDoneChanged } from '../lib/integration-webhooks.js';
+import { triggerPartnerScheduleIfPartnerTimesChanged } from '../lib/integration-webhooks.js';
 import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { runSamplingDocumentExtract } from '../lib/sampling-document-extract.js';
@@ -202,7 +202,10 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}, ac
   const pcStart = startAt === undefined ? null : startAt;
   const pcEnd = endAt === undefined ? null : endAt;
 
-  const cargoDoneBefore = POST_CHECK_AUTO_KEYS.has(key) ? await resolvePartnerCargoOpsWindow(pool, operationId) : null;
+  const partnerTimesBefore =
+    POST_CHECK_AUTO_KEYS.has(key) || key === 'closing'
+      ? await resolvePartnerCargoOpsWindow(pool, operationId)
+      : null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -343,7 +346,7 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}, ac
       });
     }
     await client.query('COMMIT');
-    if (cargoDoneBefore) triggerPartnerScheduleIfCargoDoneChanged(operationId, cargoDoneBefore).catch(() => {});
+    if (partnerTimesBefore) triggerPartnerScheduleIfPartnerTimesChanged(operationId, partnerTimesBefore).catch(() => {});
     return id;
   } catch (e) {
     await client.query('ROLLBACK');
@@ -568,7 +571,10 @@ router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (re
   const row = await loadSubProcess(operationId, phase, key);
   if (!row) return res.status(404).json({ error: 'Sub-process not found' });
 
-  const cargoDoneBefore = POST_CHECK_AUTO_KEYS.has(key) ? await resolvePartnerCargoOpsWindow(pool, operationId) : null;
+  const partnerTimesBefore =
+    POST_CHECK_AUTO_KEYS.has(key) || key === 'closing'
+      ? await resolvePartnerCargoOpsWindow(pool, operationId)
+      : null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -591,7 +597,7 @@ router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (re
     client.release();
   }
 
-  if (cargoDoneBefore) triggerPartnerScheduleIfCargoDoneChanged(operationId, cargoDoneBefore).catch(() => {});
+  if (partnerTimesBefore) triggerPartnerScheduleIfPartnerTimesChanged(operationId, partnerTimesBefore).catch(() => {});
   writeActivityLog({
     pageKey: 'loading',
     action: 'delete',

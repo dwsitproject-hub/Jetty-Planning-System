@@ -420,7 +420,7 @@ router.post('/shipping-instructions', async (req, res) => {
   const commodityByShortName = cargoResolved.commodityByShortName;
   const commodityTypeSet = new Set();
   for (const c of value.cargo) {
-    const commodityRow = commodityByShortName.get(normalizeCargoShortName(c.cargoType));
+    const commodityRow = c.commodity;
     if (!commodityRow) {
       return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
         {
@@ -625,7 +625,7 @@ router.post('/shipping-instructions', async (req, res) => {
 
     let lineOrder = 0;
     for (const line of value.cargo) {
-      const commodity = commodityByShortName.get(normalizeCargoShortName(line.cargoType));
+      const commodity = line.commodity;
       await client.query(
         `INSERT INTO public.shipping_instruction_breakdown (
            shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no, sto_no,

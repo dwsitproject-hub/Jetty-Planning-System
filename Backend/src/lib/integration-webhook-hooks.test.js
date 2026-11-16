@@ -158,20 +158,20 @@ describe('integration-webhook-hooks', () => {
     assert.ok(operations.includes("'schedule.updated'"));
   });
 
-  it('operational-activities route triggers partner schedule webhook for cargo_operations', () => {
+  it('operational-activities route triggers partner schedule webhook for Opening and cargo operations', () => {
     const src = readFileSync(path.join(routesDir, 'operation-operational-activities.js'), 'utf8');
-    assert.ok(src.includes('triggerPartnerScheduleWebhookForOperation'));
+    assert.ok(src.includes('triggerPartnerScheduleIfPartnerTimesChanged'));
     assert.ok(src.includes('resolvePartnerCargoOpsWindow'));
-    assert.ok(src.includes('partnerCargoOpsWindowScheduleChanged'));
-    assert.match(src, /before\.doneAt/);
-    assert.match(src, /milestoneKey === 'cargo_operations'/);
+    assert.ok(src.includes('partnerScheduleMilestone'));
+    assert.match(src, /opening_hatch/);
+    assert.match(src, /cargo_operations/);
   });
 
-  it('sub-process route pushes a schedule webhook only when a final check moves Cargo Done', () => {
+  it('sub-process route pushes a schedule webhook when Closing or a final check changes partner times', () => {
     const src = readFileSync(path.join(routesDir, 'operation-sub-processes.js'), 'utf8');
-    assert.match(src, /triggerPartnerScheduleIfCargoDoneChanged\(operationId, cargoDoneBefore\)/);
-    assert.equal(src.match(/triggerPartnerScheduleIfCargoDoneChanged\(operationId, cargoDoneBefore\)/g).length, 2);
-    assert.match(src, /POST_CHECK_AUTO_KEYS\.has\(key\) \? await resolvePartnerCargoOpsWindow/);
+    assert.match(src, /triggerPartnerScheduleIfPartnerTimesChanged\(operationId, partnerTimesBefore\)/);
+    assert.equal(src.match(/triggerPartnerScheduleIfPartnerTimesChanged\(operationId, partnerTimesBefore\)/g).length, 2);
+    assert.match(src, /POST_CHECK_AUTO_KEYS\.has\(key\) \|\| key === 'closing'/);
   });
 
   describe('status.changed dedupe', () => {
