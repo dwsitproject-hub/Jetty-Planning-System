@@ -67,7 +67,15 @@ function buildPartnerApproval(row) {
 }
 
 /** Stages from jetty assignment onward carry the allocation block. */
-const ALLOCATED_STAGES = new Set(['Allocated', 'Berthed', 'Start Cargo', 'Cargo Done', 'Sailed Off']);
+const ALLOCATED_STAGES = new Set([
+  'Allocated',
+  'Berthed',
+  'Hose On',
+  'Start Cargo',
+  'Cargo Done',
+  'Hose Off',
+  'Sailed Off',
+]);
 
 /** @param {Record<string, unknown>} row @param {string} status */
 function buildPartnerAllocation(row, status) {

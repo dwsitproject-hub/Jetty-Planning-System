@@ -50,8 +50,17 @@ describe('integration-partner-payload', () => {
       ['Allocated', { op_status: 'ALLOCATED' }],
       ['Berthed', { op_status: 'DOCKED', op_tb: '2026-10-02T10:00:00.000Z' }],
       [
-        'Start Cargo',
+        'Hose On',
         { op_status: 'IN_PROGRESS', op_tb: '2026-10-02T10:00:00.000Z', op_cargo_ops_window_start_at: '2026-10-02T12:00:00.000Z' },
+      ],
+      [
+        'Start Cargo',
+        {
+          op_status: 'IN_PROGRESS',
+          op_tb: '2026-10-02T10:00:00.000Z',
+          op_cargo_ops_window_start_at: '2026-10-02T11:00:00.000Z',
+          op_cargo_activity_start_at: '2026-10-02T12:00:00.000Z',
+        },
       ],
       [
         'Cargo Done',
@@ -59,7 +68,17 @@ describe('integration-partner-payload', () => {
           op_status: 'POST_OPS',
           op_tb: '2026-10-02T10:00:00.000Z',
           op_cargo_ops_window_start_at: '2026-10-02T12:00:00.000Z',
+          op_cargo_activity_start_at: '2026-10-02T13:00:00.000Z',
           op_cargo_done_at: '2026-10-03T06:00:00.000Z',
+        },
+      ],
+      [
+        'Hose Off',
+        {
+          op_status: 'POST_OPS',
+          op_tb: '2026-10-02T10:00:00.000Z',
+          op_cargo_done_at: '2026-10-03T06:00:00.000Z',
+          op_cargo_ops_window_end_at: '2026-10-03T08:00:00.000Z',
         },
       ],
       ['Sailed Off', { op_status: 'SAILED' }],

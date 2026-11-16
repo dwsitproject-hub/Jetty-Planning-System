@@ -326,11 +326,12 @@ function instantMs(v) {
   return Number.isNaN(t) ? null : t;
 }
 
-/** True when Hose On (Opening), Hose Off (Closing), or Cargo Done moved. */
+/** True when Hose On, Start Cargo, Cargo Done, or Hose Off moved. */
 export function partnerScheduleTimesChanged(before, after) {
   if (!before || !after) return false;
   return (
     instantMs(before.startAt) !== instantMs(after.startAt) ||
+    instantMs(before.cargoStartAt) !== instantMs(after.cargoStartAt) ||
     instantMs(before.endAt) !== instantMs(after.endAt) ||
     instantMs(before.doneAt) !== instantMs(after.doneAt)
   );
