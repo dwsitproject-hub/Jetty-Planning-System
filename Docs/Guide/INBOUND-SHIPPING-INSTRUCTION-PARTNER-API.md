@@ -31,7 +31,7 @@
 1. Your system **lists** JPS reference data (`GET /terms`, `/agents`, `/surveyors`, `/shippers`) and **registers** agents/shippers via `POST`/`PATCH` when needed.
 2. Your system **submits** a Shipping Instruction via `POST`, identifying the vessel by **`vessel_hub_code`** (preferred) or unique **`vessel_name`**. JPS maps this to master vessel data and snapshots name/LOA/GT/draft on the plan. Optionally include `po_no`, `so_no`, `sto_no`, `shipper_name`, `trade_term`, `surveyor_name`.
 3. If PO/SO are not ready at submit time, your system **PATCH**es the instruction while status is **`Pending`**.
-4. JPS creates a real **Shipment Plan** + **Shipping Instruction** with partner status **`Pending`**.
+4. JPS creates a real **Shipment Plan** + **Shipping Instruction** with partner status **`Pending`**. JPS may send **in-app and email** notifications for event **`shipment_plan.partner_submitted`** (configured in **Admin → Notification Settings → Partner Shipment Plan Received**, with per-port recipients).
 5. A JPS operator **reviews** in the web app and **Approves**, **Rejects**, or **Deletes** the plan.
 6. Once approved, an operator **allocates** a jetty/berth → status becomes **`Allocated`**.
 7. Operators log **milestones** (TA, ETB, TB, ETC, TC, cast off, sailed) in JPS. Status follows them: **`Berthed`** when TB is set, **`Start Cargo`** when the cargo operation window starts, **`Cargo Done`** when cargo and final checks finish.

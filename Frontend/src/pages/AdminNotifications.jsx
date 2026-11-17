@@ -21,7 +21,11 @@ import DropdownMultiSelect from '../components/DropdownMultiSelect'
 import '../styles/allocation.css'
 import '../styles/admin.css'
 
-const WORKFLOW_EVENTS = ['shipment_plan.submitted', 'operation.signoff_requested']
+const WORKFLOW_EVENTS = [
+  'shipment_plan.submitted',
+  'shipment_plan.partner_submitted',
+  'operation.signoff_requested',
+]
 const SLA_EVENTS = ['operation.sla_etc_d1', 'operation.sla_etc_breach']
 const ADMIN_EVENT_DISPLAY_ORDER = [...WORKFLOW_EVENTS, ...SLA_EVENTS]
 const COLLAPSE_STORAGE_KEY = 'jps_admin_notifications_collapsed'
@@ -29,7 +33,7 @@ const COLLAPSE_STORAGE_KEY = 'jps_admin_notifications_collapsed'
 function defaultCollapsedState() {
   const out = {}
   for (const ek of ADMIN_EVENT_DISPLAY_ORDER) {
-    out[ek] = !(ek === 'shipment_plan.submitted')
+    out[ek] = !(ek === 'shipment_plan.submitted' || ek === 'shipment_plan.partner_submitted')
   }
   return out
 }
@@ -86,6 +90,7 @@ function CollapsiblePanel({ panelId, title, summary, expanded, onToggle, childre
 
 const EVENT_LABEL_FALLBACK = {
   'shipment_plan.submitted': 'Shipment Plan Approval',
+  'shipment_plan.partner_submitted': 'Partner Shipment Plan Received',
   'operation.signoff_requested': 'Clearance Sign Off Request',
   'operation.sla_etc_d1': 'SLA D-1 Reminder',
   'operation.sla_etc_breach': 'SLA Breach Alert',

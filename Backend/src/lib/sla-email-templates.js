@@ -8,6 +8,7 @@ export const SLA_EMAIL_TEMPLATE_EVENTS = [SLA_EVENT_D1, SLA_EVENT_BREACH];
 
 export const WORKFLOW_EMAIL_TEMPLATE_EVENTS = [
   'shipment_plan.submitted',
+  'shipment_plan.partner_submitted',
   'operation.signoff_requested',
 ];
 
@@ -41,6 +42,17 @@ export const DEFAULT_WORKFLOW_EMAIL_TEMPLATES = {
       'Open the approval page:\n' +
       '{{actionUrl}}\n',
   },
+  'shipment_plan.partner_submitted': {
+    titleTemplate: 'Jetty Planning: partner {{partnerName}} submitted plan {{planReference}}',
+    bodyTemplate:
+      'Partner {{partnerName}} submitted a shipment plan via the integration API.\n\n' +
+      'Port: {{portName}}\n' +
+      'Plan reference: {{planReference}}\n' +
+      'External reference: {{externalReference}}\n' +
+      'Vessel: {{vesselName}}\n\n' +
+      'Open the approval page:\n' +
+      '{{actionUrl}}\n',
+  },
   'operation.signoff_requested': {
     titleTemplate: 'Clearance: sign-off for {{vesselName}} ({{jettyOperationCode}})',
     bodyTemplate:
@@ -52,6 +64,16 @@ export const DEFAULT_WORKFLOW_EMAIL_TEMPLATES = {
 
 export const WORKFLOW_EMAIL_PLACEHOLDERS = {
   'shipment_plan.submitted': ['planReference', 'planId', 'actionUrl', 'primaryHref'],
+  'shipment_plan.partner_submitted': [
+    'planReference',
+    'planId',
+    'actionUrl',
+    'primaryHref',
+    'partnerName',
+    'externalReference',
+    'vesselName',
+    'portName',
+  ],
   'operation.signoff_requested': [
     'vesselName',
     'jettyOperationCode',
@@ -114,6 +136,19 @@ export function getAdminEmailTemplateSampleVars(eventKey) {
       primaryHref: href,
     };
   }
+  if (eventKey === 'shipment_plan.partner_submitted') {
+    const href = `${baseUrl}/shipment-plans/approval/12345`;
+    return {
+      planReference: 'SP-26-09-00147',
+      planId: '12345',
+      partnerName: 'Downstream Hub',
+      externalReference: 'EXT-2026-9912',
+      vesselName: 'MV Example Star',
+      portName: 'Lb Gaung',
+      actionUrl: href,
+      primaryHref: href,
+    };
+  }
   if (eventKey === 'operation.signoff_requested') {
     const href = `${baseUrl}/verification?filter=pending`;
     return {
@@ -158,6 +193,7 @@ export function assertEditableSlaEmailEvent(eventKey) {
 
 function templateKindForEvent(eventKey) {
   if (eventKey === 'shipment_plan.submitted') return 'approval';
+  if (eventKey === 'shipment_plan.partner_submitted') return 'approval';
   if (eventKey === 'operation.signoff_requested') return 'clearance';
   return 'info';
 }

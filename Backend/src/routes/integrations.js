@@ -699,14 +699,19 @@ router.post('/shipping-instructions', async (req, res) => {
   }).catch(() => {});
 
   const appBase = getPublicAppBaseUrl();
+  const resolvedPortDisplayName = portRow?.name ? String(portRow.name) : '';
   triggerNotificationDeferred(pool, {
-    eventKey: 'shipment_plan.submitted',
-    correlationId: `shipment_plan.submitted:${planId}`,
+    eventKey: 'shipment_plan.partner_submitted',
+    correlationId: `shipment_plan.partner_submitted:${planId}`,
     portId: value.portId,
     excludeUserId: null,
     payloadVars: {
       planReference: planRef,
       planId: String(planId),
+      partnerName: key.partnerName,
+      externalReference: value.externalReference,
+      vesselName: resolvedVesselName,
+      portName: resolvedPortDisplayName,
       primaryHref: `${appBase}/shipment-plans/approval/${planId}`,
       actionUrl: `${appBase}/shipment-plans/approval/${planId}`,
     },
