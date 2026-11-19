@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { fetchNoFlow } from '../api/noFlow'
+import { formatStopDuration } from '../utils/noFlowDisplay.js'
 import { Link, useSearchParams } from 'react-router-dom'
 import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
 import { departShipmentPlan } from '../api/shipmentPlans'
@@ -602,7 +604,15 @@ export default function Verification() {
 
   const handleApproveSignoff = async (r) => {
     if (!r?.operationId) return
-    if (!window.confirm(`Sign off operation for ${r.vesselName || 'this vessel'}? It will move to Ready to Sail.`)) return
+    const noFlow = await fetchNoFlow(r.operationId).catch(() => null)
+    const noFlowWarning =
+      noFlow?.totals?.unexplainedCount > 0
+        ? `${t('noFlowSignoffWarning', {
+            count: noFlow.totals.unexplainedCount,
+            duration: formatStopDuration(noFlow.totals.unexplainedMinutes),
+          })}\n\n`
+        : ''
+    if (!window.confirm(`${noFlowWarning}Sign off operation for ${r.vesselName || 'this vessel'}? It will move to Ready to Sail.`)) return
     setSignoffBusyId(r.operationId)
     setSubmitErr(null)
     try {

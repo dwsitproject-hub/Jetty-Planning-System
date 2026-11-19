@@ -28,6 +28,7 @@ export function pathToPageKey(pathname) {
   if (pathname.startsWith('/master/jetty-layout')) return 'master-jetty-layout'
   if (pathname.startsWith('/master/tanks')) return 'master-tanks'
   if (pathname.startsWith('/master/kuras-rules')) return 'master-kuras-rules'
+  if (pathname.startsWith('/master/no-flow-reasons')) return 'master-no-flow-reasons'
   if (pathname.startsWith('/master/vessel')) return 'master-vessel'
   if (pathname.startsWith('/master/company')) return 'master-company'
   if (pathname.startsWith('/tank-farm')) return 'tank-farm'

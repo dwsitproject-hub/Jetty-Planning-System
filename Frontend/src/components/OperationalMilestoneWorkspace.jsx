@@ -35,6 +35,7 @@ import CargoOverrideBlock from './CargoOverrideBlock'
 import DropdownSearchSelect from './DropdownSearchSelect'
 import CargoEntryHourlyPanel from './CargoEntryHourlyPanel'
 import CargoMovementTypeField from './CargoMovementTypeField'
+import NoFlowLogPanel from './noflow/NoFlowLogPanel.jsx'
 import { movementDraftFromLine } from '../utils/kurasMovementReason.js'
 import {
   collectCargoLoadLines,
@@ -1575,6 +1576,9 @@ export default function OperationalMilestoneWorkspace({
               cargoSiMetricLabel={cargoSiMetricCode ?? cargoSiMetricName ?? null}
               liveCargoProgress={liveCargoProgress}
             />
+            {useApi && operationId ? (
+              <NoFlowLogPanel key={activityLogRefresh} operationId={operationId} scheduleTimezone={tz} />
+            ) : null}
             {formModalOpen ? (
               <StickyFormOverlay onClose={() => { setFormModalOpen(false); setEditingEntryId(null) }}>
                 <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Operational form">
