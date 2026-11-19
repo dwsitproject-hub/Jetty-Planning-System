@@ -4527,6 +4527,40 @@ body:has(.clearance-page--embed) {
   opacity: 0.4;
 }
 
+.cargo-movement-type {
+  margin-top: var(--spacing-2);
+}
+.cargo-movement-type__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+.cargo-movement-type__badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.cargo-movement-type__badge--normal {
+  background: #dcfce7;
+  color: #166534;
+}
+.cargo-movement-type__badge--kuras {
+  background: #fef3c7;
+  color: #92400e;
+}
+.cargo-movement-type__reason {
+  margin: var(--spacing-1) 0 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--color-bg-subtle, #f8fafc);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--color-text-secondary, #64748b);
+}
+
 .cargo-entry-hourly {
   margin-top: var(--spacing-3);
   padding-top: var(--spacing-3);

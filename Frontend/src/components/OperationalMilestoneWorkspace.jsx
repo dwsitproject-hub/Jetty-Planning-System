@@ -34,6 +34,8 @@ import OperationActivityTimeline from './OperationActivityTimeline'
 import CargoOverrideBlock from './CargoOverrideBlock'
 import DropdownSearchSelect from './DropdownSearchSelect'
 import CargoEntryHourlyPanel from './CargoEntryHourlyPanel'
+import CargoMovementTypeField from './CargoMovementTypeField'
+import { movementDraftFromLine } from '../utils/kurasMovementReason.js'
 import {
   collectCargoLoadLines,
   detectCargoSiQtyMismatch,
@@ -176,6 +178,8 @@ function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = [], commodi
     tankIds: normalizeDraftTankIds(tankIds),
     commodityId: commodityId != null ? String(commodityId) : '',
     persistedCommodityId: null,
+    movementType: 'auto',
+    persistedMovement: null,
   }
 }
 
@@ -351,6 +355,7 @@ export default function OperationalMilestoneWorkspace({
               qtyTouched: true,
               tankIds: lineTankIds,
               ...commodityDraftFromPersistedLoadLine(l),
+              ...movementDraftFromLine(l),
             }
           })
         )
@@ -519,6 +524,7 @@ export default function OperationalMilestoneWorkspace({
                   : fallbackTankIds
               ),
               ...commodityDraftFromPersistedLoadLine(l),
+              ...movementDraftFromLine(l),
             }))
           )
         } else if (commodityType === 'Liquid' && useApi) {
@@ -1191,6 +1197,7 @@ export default function OperationalMilestoneWorkspace({
             commodityId: lineCommodityId || null,
             overrideOn,
             overrideNote,
+            movementType: li.movementType || 'auto',
           })
         }
         built.sort((a, b) => a._sort - b._sort || a._i - b._i)
@@ -1208,8 +1215,8 @@ export default function OperationalMilestoneWorkspace({
           }
         }
         const cargoLoadLines = built.map(
-          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId, overrideOn, overrideNote }) => {
-          const row = { startAt: startIso, atgQtyMode: atgQtyMode || 'auto' }
+          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId, overrideOn, overrideNote, movementType }) => {
+          const row = { startAt: startIso, atgQtyMode: atgQtyMode || 'auto', movementType }
           if (endIso) row.endAt = endIso
           else row.endAt = null
           if (qty != null) row.qty = qty
@@ -2039,6 +2046,12 @@ export default function OperationalMilestoneWorkspace({
                               </strong>
                             </span>
                           </div>
+
+                          <CargoMovementTypeField
+                            id={`op-cargo-movement-${lr.key}`}
+                            draft={row}
+                            onChange={(movementType) => updateCargoLineDraft(lr.key, { movementType })}
+                          />
 
                           {useCargoSessionMode && row.start ? (
                             <CargoEntryHourlyPanel

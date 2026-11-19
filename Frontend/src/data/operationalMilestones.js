@@ -87,6 +87,11 @@ export function viewModelFromOperationalEntries(entries, purpose) {
                     ? Number(l.manual_qty)
                     : null,
               atgQtyMode: (l.atgQtyMode ?? l.atg_qty_mode) === 'manual' ? 'manual' : 'auto',
+              movementType: l.movementType ?? null,
+              movementTypeSource: l.movementTypeSource === 'manual' ? 'manual' : 'auto',
+              movementTypeReason: l.movementTypeReason ?? null,
+              movementTypeSetAt: l.movementTypeSetAt ?? null,
+              movementTypeSetByName: l.movementTypeSetByName ?? null,
               manualOverride: l.manualOverride ?? l.manual_override ?? null,
               startAt: l.startAt ?? l.start_at ?? null,
               endAt: l.endAt ?? l.end_at ?? null,
