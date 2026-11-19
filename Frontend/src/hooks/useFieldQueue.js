@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { defaultSailedRange, sailedRangeError, sailedRangeParams } from '../utils/fieldQueueRange'
 import { filterQcGroups, groupQcQueue, isSailedFilter, sortQcGroups } from '../utils/qcQueue'
@@ -42,6 +42,8 @@ export function useFieldQueue(fetchRows, { statusOf, ns }) {
   const [sailedRange, setSailedRange] = useState(() => saved?.sailedRange || defaultSailedRange())
 
   const sailed = isSailedFilter(filter)
+  /** Last status chip of the "At berth" scope, restored when switching back from "Sailed". */
+  const lastStatusFilter = useRef(sailed ? 'needs' : filter)
   const rangeError = sailed ? sailedRangeError(sailedRange) : null
 
   const load = useCallback(async () => {
@@ -75,9 +77,15 @@ export function useFieldQueue(fetchRows, { statusOf, ns }) {
         setSortBy(isSailedFilter(next) ? 'castOff' : 'tb')
         setExpanded(new Set())
       }
+      if (!isSailedFilter(next)) lastStatusFilter.current = next
       setFilterState(next)
     },
     [filter]
+  )
+
+  const setScope = useCallback(
+    (scope) => setFilter(scope === 'sailed' ? 'sailed' : lastStatusFilter.current),
+    [setFilter]
   )
 
   const groups = useMemo(() => groupQcQueue(rows, statusOf), [rows, statusOf])
@@ -107,6 +115,7 @@ export function useFieldQueue(fetchRows, { statusOf, ns }) {
     filter,
     setFilter,
     sailed,
+    setScope,
     sailedRange,
     setSailedRange,
     rangeError,

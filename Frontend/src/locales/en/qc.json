@@ -40,19 +40,20 @@
     "updatedBy": "Updated {{when}} by {{who}}",
     "updatedAt": "Updated {{when}}",
     "filterSailed": "Sailed",
-    "sortCastOff": "Sailed last first",
+    "sortCastOff": "Latest sailed",
     "sailedRange": "Cast-off date range",
-    "sailedFrom": "Cast off from",
-    "sailedTo": "Cast off to",
-    "sailedHint": "Sailed vessels are view only. Showing the last 30 days by default.",
     "sailedRangeError": {
       "required": "Pick both dates.",
       "order": "The start date must be on or before the end date.",
       "tooLong": "Pick a range of one year or less."
     },
     "noSailed": "No vessels sailed in this date range.",
-    "sailedTag": "Sailed",
-    "castOffPrefix": "CO"
+    "castOffPrefix": "CO",
+    "scopeLabel": "Show vessels",
+    "scopeActive": "At berth",
+    "castOffLabel": "Cast off",
+    "sailedFrom": "Cast off from",
+    "sailedTo": "Cast off to"
   },
   "entry": {
     "back": "Back to vessels",

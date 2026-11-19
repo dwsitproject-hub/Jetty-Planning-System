@@ -40,19 +40,20 @@
     "updatedBy": "Diperbarui {{when}} oleh {{who}}",
     "updatedAt": "Diperbarui {{when}}",
     "filterSailed": "Sudah berlayar",
-    "sortCastOff": "Terakhir berlayar dulu",
+    "sortCastOff": "Terakhir berlayar",
     "sailedRange": "Rentang tanggal cast off",
-    "sailedFrom": "Cast off dari",
-    "sailedTo": "Cast off sampai",
-    "sailedHint": "Kapal yang sudah berlayar hanya bisa dilihat. Default menampilkan 30 hari terakhir.",
     "sailedRangeError": {
       "required": "Pilih kedua tanggal.",
       "order": "Tanggal awal harus sama atau sebelum tanggal akhir.",
       "tooLong": "Pilih rentang maksimal satu tahun."
     },
     "noSailed": "Tidak ada kapal yang berlayar dalam rentang tanggal ini.",
-    "sailedTag": "Berlayar",
-    "castOffPrefix": "CO"
+    "castOffPrefix": "CO",
+    "scopeLabel": "Tampilkan kapal",
+    "scopeActive": "Sedang sandar",
+    "castOffLabel": "Cast off",
+    "sailedFrom": "Cast off dari",
+    "sailedTo": "Cast off sampai"
   },
   "entry": {
     "back": "Kembali ke daftar kapal",

@@ -7,19 +7,13 @@ export function siLabel(row) {
   return row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`
 }
 
-/** "Sailed" tag and cast-off time for a view-only vessel call (nothing for berthed vessels). */
+/** Cast-off time of a sailed (view-only) vessel call, on the TB line; nothing for berthed vessels. */
 export function SailedMeta({ group, t }) {
-  if (!group.readOnly) return null
-  const co = group.castOffMs != null ? formatDateTimeDisplay(new Date(group.castOffMs).toISOString()) : null
+  if (!group.readOnly || group.castOffMs == null) return null
   return (
-    <>
-      <span className="qc-sailed-tag">{t('queue.sailedTag')}</span>
-      {co ? (
-        <span>
-          {t('queue.castOffPrefix')} {co}
-        </span>
-      ) : null}
-    </>
+    <span>
+      {t('queue.castOffPrefix')} {formatDateTimeDisplay(new Date(group.castOffMs).toISOString())}
+    </span>
   )
 }
 

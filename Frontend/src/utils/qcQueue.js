@@ -1,6 +1,7 @@
 /** Grouping, filtering and sorting for the QC Sampling queue (one card per vessel call). */
 
-export const QC_FILTERS = ['needs', 'done', 'all', 'sailed']
+/** Status chips of the "At berth" scope; the "Sailed" scope is the filter value 'sailed'. */
+export const QC_FILTERS = ['needs', 'done', 'all']
 /** Sorts offered per queue: berthed vessels by TB, sailed ones by cast-off (newest first). */
 export const QC_SORTS = ['tb', 'vesselName', 'jetty']
 export const QC_SAILED_SORTS = ['castOff', 'vesselName', 'jetty']
