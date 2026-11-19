@@ -549,14 +549,23 @@ function dedupeBerthOccupantsByShipmentPlan(occList) {
   return [...byPlan.values(), ...unlinked];
 }
 
-function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = false) {
+/**
+ * @param {boolean} includeUpdatedByJoin
+ * @param {boolean} [includeSailedForSchedule] also SAILED ops cast off within `$3` days
+ * @param {boolean} [sailedRange] only SAILED ops cast off in [`$3`, `$4`) (field-menu history)
+ */
+function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = false, sailedRange = false) {
   const bySelect = includeUpdatedByJoin
     ? `NULLIF(TRIM(COALESCE(u.display_name, u.username, '')), '') AS record_last_updated_by_display_name`
     : `NULL::text AS record_last_updated_by_display_name`;
   const joinUsers = includeUpdatedByJoin
     ? `LEFT JOIN users u ON u.id = o.updated_by AND u.deleted_at IS NULL`
     : '';
-  const statusFilter = includeSailedForSchedule
+  const statusFilter = sailedRange
+    ? `AND o.status = 'SAILED'
+       AND COALESCE(sp.cast_off_at, o.cast_off_at) >= $3::timestamptz
+       AND COALESCE(sp.cast_off_at, o.cast_off_at) < $4::timestamptz`
+    : includeSailedForSchedule
     ? `AND (
          o.status <> 'SAILED'
          OR COALESCE(o.cast_off_at, o.actual_completion_time, o.updated_at) >= (NOW() - ($3::int * INTERVAL '1 day'))
@@ -680,6 +689,28 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
        ${statusFilter}
      ORDER BY COALESCE(COALESCE(sp.sequence, o.sequence)) ASC NULLS LAST,
               COALESCE(o.docking_start_time, sp.eta, o.eta, si.eta_from::timestamptz) ASC NULLS LAST, o.id ASC`;
+}
+
+/**
+ * Sailed operations of one port whose cast-off falls in [from, to), shaped like overview queue
+ * rows (cargo breakdown and QC decisions included). Used by the field menus' read-only history.
+ * @param {number} selectedPortId
+ * @param {{ from: Date, to: Date }} range
+ */
+export async function loadSailedOverviewRows(selectedPortId, { from, to }) {
+  const res = await pool.query(operationsOverviewSql(true, false, true), [
+    'operation',
+    selectedPortId,
+    from.toISOString(),
+    to.toISOString(),
+  ]);
+  const rows = await enrichRowsWithCargoDisplay(pool, res.rows);
+  const decisions = await loadDecisionsByOperation(
+    pool,
+    rows.map((r) => r.operation_id)
+  );
+  for (const row of rows) row.qc_decisions = decisions.get(Number(row.operation_id)) || [];
+  return rows.map(formatListRow);
 }
 
 export async function buildAllocationOverviewPayload(selectedPortId) {

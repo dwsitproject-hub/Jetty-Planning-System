@@ -8,6 +8,7 @@ import {
 } from './operations'
 import { mergePreCheckSubRowsToPreData } from '../utils/loadingHubProcessStagesFromApi'
 import { buildSamplingPayload } from '../utils/qcSampling'
+import { fieldQueueQuery } from '../utils/fieldQueueRange'
 
 const SUB_KEY = 'sampling'
 const PHASE = 'Pre-Checking'
@@ -32,11 +33,12 @@ function newRecordId() {
   return `sampling-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-export function fetchQcSamplingQueue() {
-  return apiGet('/qc/sampling/queue').then((out) => (Array.isArray(out?.queue) ? out.queue : []))
+/** @param {{ scope?: 'sailed', from?: string, to?: string }} [params] sailed view-only history by cast-off range */
+export function fetchQcSamplingQueue(params) {
+  return apiGet(`/qc/sampling/queue${fieldQueueQuery(params)}`).then((out) => (Array.isArray(out?.queue) ? out.queue : []))
 }
 
-/** Header row (vessel, SI, commodity, sampling status) for one berthed operation. */
+/** Header row (vessel, SI, commodity, sampling status) for one berthed or sailed operation. */
 export function fetchQcSamplingOperation(operationId) {
   return apiGet(`/qc/sampling/operations/${operationId}`)
 }
@@ -121,7 +123,8 @@ export async function saveQcSamplingSection(operationId, sampling, mode, options
       SUB_KEY,
       PHASE,
       docs.map((d) => d.file),
-      key || null
+      key || null,
+      { source: 'qc' }
     )
     for (const item of Array.isArray(upload?.items) ? upload.items : []) {
       saved.push({
@@ -149,5 +152,5 @@ export async function saveQcSamplingSection(operationId, sampling, mode, options
 }
 
 export function deleteQcSamplingDocument(operationId, documentId) {
-  return deleteSubProcessDocument(operationId, SUB_KEY, documentId, PHASE)
+  return deleteSubProcessDocument(operationId, SUB_KEY, documentId, PHASE, { source: 'qc' })
 }

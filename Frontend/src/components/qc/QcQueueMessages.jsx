@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next'
 /** Loading, error (with retry) and empty lines under the queue toolbar. */
 export default function QcQueueMessages({ queue }) {
   const { t } = useTranslation(queue.ns)
-  const { loading, error, rows, visible, reload } = queue
-  const emptyMessage = rows.length === 0 ? t('queue.noVessels') : t('queue.noMatches')
+  const { loading, error, rows, visible, reload, sailed, rangeError } = queue
+  const noVessels = sailed ? t('queue.noSailed') : t('queue.noVessels')
+  const emptyMessage = rows.length === 0 ? noVessels : t('queue.noMatches')
+  if (rangeError) return null
 
   return (
     <>

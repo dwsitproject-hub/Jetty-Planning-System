@@ -1,11 +1,21 @@
 /** Grouping, filtering and sorting for the QC Sampling queue (one card per vessel call). */
 
-export const QC_FILTERS = ['needs', 'done', 'all']
+export const QC_FILTERS = ['needs', 'done', 'all', 'sailed']
+/** Sorts offered per queue: berthed vessels by TB, sailed ones by cast-off (newest first). */
 export const QC_SORTS = ['tb', 'vesselName', 'jetty']
+export const QC_SAILED_SORTS = ['castOff', 'vesselName', 'jetty']
+
+export const isSailedFilter = (filter) => filter === 'sailed'
 
 function tbMs(row) {
   if (!row?.tbDateTime) return null
   const ms = new Date(row.tbDateTime).getTime()
+  return Number.isNaN(ms) ? null : ms
+}
+
+function castOffMs(row) {
+  if (!row?.castOffDateTime) return null
+  const ms = new Date(row.castOffDateTime).getTime()
   return Number.isNaN(ms) ? null : ms
 }
 
@@ -43,12 +53,15 @@ export function groupQcQueue(rows, statusOf = samplingStatusOf) {
     const children = [...map.get(key)].sort((a, b) => a.operationId - b.operationId)
     const head = children[0]
     const times = children.map(tbMs).filter((ms) => ms != null)
+    const castOffs = children.map(castOffMs).filter((ms) => ms != null)
     return {
       key,
       children,
       vesselName: head.vesselName || '—',
       jetty: head.jetty || '—',
       tbMs: times.length ? Math.min(...times) : null,
+      castOffMs: castOffs.length ? Math.max(...castOffs) : null,
+      readOnly: children.every((c) => c.readOnly),
       purposes: [...new Set(children.map((c) => c.purpose).filter(Boolean))],
       siCount: children.length,
       doneCount: children.filter((c) => statusOf(c) === 'done').length,
@@ -70,12 +83,13 @@ export function filterQcGroups(groups, filter, search) {
   })
 }
 
-/** `tb` puts the longest-berthed vessel first; vessels without a TB sort last. */
+/** `tb` puts the longest-berthed vessel first, `castOff` the latest sailing; missing times sort last. */
 export function sortQcGroups(groups, sortBy) {
   const byName = (a, b) => a.vesselName.localeCompare(b.vesselName)
   return [...groups].sort((a, b) => {
     if (sortBy === 'jetty') return a.jetty.localeCompare(b.jetty) || byName(a, b)
     if (sortBy === 'vesselName') return byName(a, b)
+    if (sortBy === 'castOff') return (b.castOffMs ?? -Infinity) - (a.castOffMs ?? -Infinity) || byName(a, b)
     const ta = a.tbMs ?? Number.MAX_SAFE_INTEGER
     const tb = b.tbMs ?? Number.MAX_SAFE_INTEGER
     return ta - tb || byName(a, b)

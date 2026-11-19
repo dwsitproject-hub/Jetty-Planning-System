@@ -3,7 +3,6 @@
  * Pre-Checking `sampling` sub-process, loaded with one extra query (no N+1).
  */
 import { pool } from '../db.js';
-import { isBerthedQueueRow } from './berthed-queue.js';
 import { loadSubProcessRows, queueHeader } from './field-queue.js';
 import { loadSpecsByCommodityIds, specForCommodity } from './qc-spec-store.js';
 import { previewMetricsFromCards, toSamplingSummary } from './sampling-sub-process.js';
@@ -81,12 +80,9 @@ function commodityIdsOf(row) {
 }
 
 /**
- * @param {number} selectedPortId
- * @param {() => Promise<{ queue: object[] }>} loadOverview allocation overview loader
+ * @param {object[]} rows overview rows already chosen for the queue (berthed or sailed)
  */
-export async function buildQcSamplingQueue(selectedPortId, loadOverview) {
-  const overview = await loadOverview(selectedPortId);
-  const rows = (Array.isArray(overview?.queue) ? overview.queue : []).filter(isBerthedQueueRow);
+export async function buildQcSamplingQueue(rows) {
   const operationIds = rows.map((r) => r.operationId);
   const [samplingByOperation, cardsByOperation, specs] = await Promise.all([
     loadSubProcessRows(operationIds, { phase: 'Pre-Checking', key: 'sampling' }),

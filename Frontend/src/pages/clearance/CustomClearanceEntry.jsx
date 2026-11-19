@@ -5,6 +5,7 @@ import QcEntryBanners from '../../components/qc/QcEntryBanners'
 import QcSamplingDocuments from '../../components/qc/QcSamplingDocuments'
 import QcSaveBar from '../../components/qc/QcSaveBar'
 import QcStatusChip from '../../components/qc/QcStatusChip'
+import ReadOnlyBanner from '../../components/qc/ReadOnlyBanner'
 import { useRbac } from '../../context/RbacContext'
 import { useCustomClearanceEntry } from '../../hooks/useCustomClearanceEntry'
 import { clearanceEntryStatus } from '../../utils/customClearance'
@@ -88,6 +89,8 @@ export default function CustomClearanceEntry({ operationId, onBack, onSaved, onF
     return undefined
   }
 
+  const readOnly = Boolean(header.readOnly)
+
   const addFiles = (files) => {
     entry.addFiles(files)
     if (errors.documents) setErrors((prev) => ({ ...prev, documents: undefined }))
@@ -116,15 +119,19 @@ export default function CustomClearanceEntry({ operationId, onBack, onSaved, onF
           </p>
         </header>
 
-        <QcEntryBanners
-          entry={entry}
-          message={message}
-          ns={NS}
-          onOverwrite={(mode) => handleSave(mode, { force: true })}
-        />
+        {readOnly ? (
+          <ReadOnlyBanner ns={NS} />
+        ) : (
+          <QcEntryBanners
+            entry={entry}
+            message={message}
+            ns={NS}
+            onOverwrite={(mode) => handleSave(mode, { force: true })}
+          />
+        )}
 
         <div className="qc-entry__body cc-entry__body">
-          <section className="qc-card-block" aria-labelledby="cc-time-title">
+          <fieldset className="qc-card-block qc-readonly-fieldset" aria-labelledby="cc-time-title" disabled={readOnly}>
             <h2 id="cc-time-title" className="qc-card-block__title">
               {t('entry.sectionTime')}
             </h2>
@@ -161,10 +168,11 @@ export default function CustomClearanceEntry({ operationId, onBack, onSaved, onF
                 onChange={(e) => change('remark', e.target.value)}
               />
             </LabeledField>
-          </section>
+          </fieldset>
 
           <div className={errors.documents ? 'cc-docs cc-docs--error' : 'cc-docs'}>
             <QcSamplingDocuments
+              readOnly={readOnly}
               ns={NS}
               keyPrefix="custom-clearance"
               documents={form.documents}
@@ -180,13 +188,15 @@ export default function CustomClearanceEntry({ operationId, onBack, onSaved, onF
         </div>
       </div>
 
-      <QcSaveBar
-        ns={NS}
-        saving={entry.saving}
-        dirty={entry.dirty}
-        lastSavedAt={form.lastSavedAt}
-        onSave={handleSave}
-      />
+      {readOnly ? null : (
+        <QcSaveBar
+          ns={NS}
+          saving={entry.saving}
+          dirty={entry.dirty}
+          lastSavedAt={form.lastSavedAt}
+          onSave={handleSave}
+        />
+      )}
     </div>
   )
 }

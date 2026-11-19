@@ -10,8 +10,20 @@ function hrefFor(url) {
   return u.startsWith('blob:') ? u : resolveUploadUrl(u)
 }
 
-/** Camera/file upload for the quality report, with per-file Extract, Open and Remove. */
-export default function QcSamplingDocuments({ documents, extractingKey, onAddFiles, onRemove, onExtract, keyPrefix = 'sampling', ns = 'qc' }) {
+/**
+ * Camera/file upload for the quality report, with per-file Extract, Open and Remove.
+ * `readOnly` (sailed vessel) keeps only Open.
+ */
+export default function QcSamplingDocuments({
+  documents,
+  extractingKey,
+  onAddFiles,
+  onRemove,
+  onExtract,
+  keyPrefix = 'sampling',
+  ns = 'qc',
+  readOnly = false,
+}) {
   const { t } = useTranslation(ns)
   const { openFilePreview } = useFilePreview()
   const cameraRef = useRef(null)
@@ -41,17 +53,21 @@ export default function QcSamplingDocuments({ documents, extractingKey, onAddFil
       <h2 id="qc-docs-title" className="qc-card-block__title">
         {t('entry.sectionDocuments')}
       </h2>
-      <p className="qc-muted">{t('documents.hint')}</p>
-      <div className="qc-doc-actions">
-        <button type="button" className="op-btn op-btn--soft" onClick={() => cameraRef.current?.click()}>
-          {t('documents.takePhoto')}
-        </button>
-        <button type="button" className="op-btn op-btn--soft" onClick={() => fileRef.current?.click()}>
-          {t('documents.chooseFile')}
-        </button>
-      </div>
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={pick} />
-      <input ref={fileRef} type="file" accept="image/*,.pdf,.xlsx" multiple hidden onChange={pick} />
+      {readOnly ? null : (
+        <>
+          <p className="qc-muted">{t('documents.hint')}</p>
+          <div className="qc-doc-actions">
+            <button type="button" className="op-btn op-btn--soft" onClick={() => cameraRef.current?.click()}>
+              {t('documents.takePhoto')}
+            </button>
+            <button type="button" className="op-btn op-btn--soft" onClick={() => fileRef.current?.click()}>
+              {t('documents.chooseFile')}
+            </button>
+          </div>
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={pick} />
+          <input ref={fileRef} type="file" accept="image/*,.pdf,.xlsx" multiple hidden onChange={pick} />
+        </>
+      )}
       {pending > 0 ? <p className="qc-muted">{t('documents.filesPending', { count: pending })}</p> : null}
       {error ? (
         <p className="operator-error-banner" role="alert">
@@ -64,7 +80,7 @@ export default function QcSamplingDocuments({ documents, extractingKey, onAddFil
           <li key={doc.id != null ? `doc-${doc.id}` : `local-${index}-${doc.name}`} className="qc-doc">
             <span className="qc-doc__name">{doc.name}</span>
             <div className="qc-doc__actions">
-              {onExtract && samplingDocumentIsExtractable(doc) ? (
+              {!readOnly && onExtract && samplingDocumentIsExtractable(doc) ? (
                 <button
                   type="button"
                   className="op-btn op-btn--soft op-btn--compact"
@@ -85,7 +101,7 @@ export default function QcSamplingDocuments({ documents, extractingKey, onAddFil
                   {t('documents.open')}
                 </button>
               ) : null}
-              {confirmIndex === index ? (
+              {readOnly ? null : confirmIndex === index ? (
                 <button type="button" className="op-btn op-btn--danger op-btn--compact" onClick={() => remove(index)}>
                   {t('documents.confirmRemove')}
                 </button>

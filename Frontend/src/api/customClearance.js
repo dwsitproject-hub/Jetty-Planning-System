@@ -1,10 +1,12 @@
 import { apiGet } from './client'
 import { deleteSubProcessDocument, fetchSubProcessDocuments, uploadSubProcessDocuments, upsertSubProcess } from './operations'
 import { isoOrDatetimeToLocal } from '../utils/loadingHubProcessStagesFromApi'
+import { fieldQueueQuery } from '../utils/fieldQueueRange'
 import { CLEARANCE_KEY, CLEARANCE_PHASE, EMPTY_CLEARANCE, buildClearancePayload } from '../utils/customClearance'
 
-export function fetchCustomClearanceQueue() {
-  return apiGet('/custom-clearance/queue').then((out) => (Array.isArray(out?.queue) ? out.queue : []))
+/** @param {{ scope?: 'sailed', from?: string, to?: string }} [params] sailed view-only history by cast-off range */
+export function fetchCustomClearanceQueue(params) {
+  return apiGet(`/custom-clearance/queue${fieldQueueQuery(params)}`).then((out) => (Array.isArray(out?.queue) ? out.queue : []))
 }
 
 /** Header row (vessel, SI, commodity) plus the current Custom Clearance summary. */
@@ -44,7 +46,9 @@ export async function saveCustomClearance(operationId, form, mode, { expectedUpd
       operationId,
       CLEARANCE_KEY,
       CLEARANCE_PHASE,
-      pending.map((d) => d.file)
+      pending.map((d) => d.file),
+      null,
+      { source: 'custom-clearance' }
     )
     uploaded = (Array.isArray(out?.items) ? out.items : []).map(toDoc)
   }
@@ -55,5 +59,5 @@ export async function saveCustomClearance(operationId, form, mode, { expectedUpd
 }
 
 export function deleteCustomClearanceDocument(operationId, documentId) {
-  return deleteSubProcessDocument(operationId, CLEARANCE_KEY, documentId, CLEARANCE_PHASE)
+  return deleteSubProcessDocument(operationId, CLEARANCE_KEY, documentId, CLEARANCE_PHASE, { source: 'custom-clearance' })
 }

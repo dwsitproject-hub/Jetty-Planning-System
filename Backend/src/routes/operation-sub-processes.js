@@ -36,6 +36,7 @@ import {
   saveSamplingCommodities,
 } from '../lib/sampling-commodity-qc.js';
 import { getSiCommodityOptionsForOperation } from '../lib/si-commodity-options.js';
+import { assertFieldMenuSourceEditable } from '../lib/field-queue.js';
 
 /** Final checks: promote to POST_OPS and move the partner Cargo Done stage. */
 const POST_CHECK_AUTO_KEYS = new Set([
@@ -448,6 +449,7 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
   }
 
   await assertOperationAccess(operationId, req);
+  await assertFieldMenuSourceEditable(operationId, req);
 
   if (phase === 'Pre-Checking' && key === 'inspection') {
     const ctx = await loadOperationPrecheckContext(operationId);
@@ -650,6 +652,7 @@ router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', u
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
   await assertOperationAccess(operationId, req);
+  await assertFieldMenuSourceEditable(operationId, req);
   const phase = cleanPhase(req.body?.phase || req.query.phase || 'Pre-Checking');
   if (!phase) return res.status(400).json({ error: 'Invalid phase' });
   const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
@@ -792,6 +795,7 @@ router.delete(
       return res.status(400).json({ error: 'Invalid operation or document id' });
     }
     await assertOperationAccess(operationId, req);
+    await assertFieldMenuSourceEditable(operationId, req);
     const phase = cleanPhase(req.query.phase || 'Pre-Checking');
     if (!phase) return res.status(400).json({ error: 'Invalid phase' });
     const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);

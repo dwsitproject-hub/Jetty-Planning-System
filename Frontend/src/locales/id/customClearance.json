@@ -37,7 +37,21 @@
     "started": "Mulai {{start}}",
     "documents": "{{count}} dokumen",
     "updatedBy": "Diperbarui {{when}} oleh {{who}}",
-    "updatedAt": "Diperbarui {{when}}"
+    "updatedAt": "Diperbarui {{when}}",
+    "filterSailed": "Sudah berlayar",
+    "sortCastOff": "Terakhir berlayar dulu",
+    "sailedRange": "Rentang tanggal cast off",
+    "sailedFrom": "Cast off dari",
+    "sailedTo": "Cast off sampai",
+    "sailedHint": "Kapal yang sudah berlayar hanya bisa dilihat. Default menampilkan 30 hari terakhir.",
+    "sailedRangeError": {
+      "required": "Pilih kedua tanggal.",
+      "order": "Tanggal awal harus sama atau sebelum tanggal akhir.",
+      "tooLong": "Pilih rentang maksimal satu tahun."
+    },
+    "noSailed": "Tidak ada kapal yang berlayar dalam rentang tanggal ini.",
+    "sailedTag": "Berlayar",
+    "castOffPrefix": "CO"
   },
   "workspace": {
     "selectTitle": "Pilih kapal untuk mencatat custom clearance",
@@ -53,7 +67,9 @@
     "startTime": "Waktu Mulai Custom Clearance",
     "endTime": "Waktu Selesai Custom Clearance",
     "remark": "Catatan",
-    "sectionDocuments": "Dokumen clearance"
+    "sectionDocuments": "Dokumen clearance",
+    "readOnlyTitle": "Sudah berlayar — hanya lihat",
+    "readOnlyText": "Kapal ini sudah berlayar. Data custom clearance dan dokumen bisa dilihat, tetapi tidak bisa diubah."
   },
   "documents": {
     "takePhoto": "Ambil foto",

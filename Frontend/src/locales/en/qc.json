@@ -38,7 +38,21 @@
     "avgMoisture": "Moist {{value}}",
     "metric": "{{label}} {{value}}",
     "updatedBy": "Updated {{when}} by {{who}}",
-    "updatedAt": "Updated {{when}}"
+    "updatedAt": "Updated {{when}}",
+    "filterSailed": "Sailed",
+    "sortCastOff": "Sailed last first",
+    "sailedRange": "Cast-off date range",
+    "sailedFrom": "Cast off from",
+    "sailedTo": "Cast off to",
+    "sailedHint": "Sailed vessels are view only. Showing the last 30 days by default.",
+    "sailedRangeError": {
+      "required": "Pick both dates.",
+      "order": "The start date must be on or before the end date.",
+      "tooLong": "Pick a range of one year or less."
+    },
+    "noSailed": "No vessels sailed in this date range.",
+    "sailedTag": "Sailed",
+    "castOffPrefix": "CO"
   },
   "entry": {
     "back": "Back to vessels",
@@ -57,7 +71,9 @@
     "noRecords": "No samples recorded yet.",
     "remark": "Remark",
     "startTime": "Start time",
-    "endTime": "End time"
+    "endTime": "End time",
+    "readOnlyTitle": "Sailed — view only",
+    "readOnlyText": "This vessel has sailed. You can view the sampling data and open documents, but not change them."
   },
   "summary": {
     "count": "Samples",
