@@ -179,7 +179,6 @@ function getGroupForPageKey(k) {
     k === 'master-jetty' ||
     k === 'master-jetty-layout' ||
     k === 'master-tanks' ||
-    k === 'master-kuras-rules' ||
     k === 'master-vessel' ||
     k === 'master-company' ||
     k === 'tank-farm'

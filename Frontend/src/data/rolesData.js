@@ -23,7 +23,6 @@ export const PAGE_OPTIONS = [
   { id: 'master-jetty', label: 'Master – Jetty' },
   { id: 'master-jetty-layout', label: 'Master – Jetty Layout' },
   { id: 'master-tanks', label: 'Master – Tanks' },
-  { id: 'master-kuras-rules', label: 'Master – Kuras Rule' },
   { id: 'master-vessel', label: 'Master – Vessel' },
   { id: 'master-company', label: 'Master – Company' },
   { id: 'tank-farm', label: 'Tank Farm' },

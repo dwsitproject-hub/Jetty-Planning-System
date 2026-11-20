@@ -38,12 +38,6 @@ import {
 import { triggerPartnerScheduleIfPartnerTimesChanged } from '../lib/integration-webhooks.js';
 import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js';
 import { loadSamplingDecisionPills } from '../lib/sampling-commodity-qc.js';
-import { parseMovementTypeInput } from '../lib/kuras-movement.js';
-import {
-  loadPriorMovementTags,
-  resolveMovementTypeColumns,
-  retagKurasForOperation,
-} from '../lib/kuras-movement-store.js';
 
 const router = express.Router();
 
@@ -414,11 +408,7 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     });
     if (normCommodity.error) return normCommodity.error;
 
-    const movementParsed = parseMovementTypeInput(row.movementType ?? row.movement_type, i);
-    if (!movementParsed.ok) return { ok: false, status: 400, error: movementParsed.error };
-
     parsed.push({
-      movementType: movementParsed.value,
       qty,
       manualQty,
       atgQtyMode,
@@ -578,7 +568,6 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     commodityId: p.commodityId,
     manualOverride: p.manualOverride ?? null,
     manualOverrideTankIds: p.overrideEntries.map((e) => e.tankId),
-    movementType: p.movementType,
   }));
   return { ok: true, lines, siCommodityOptions };
 }
@@ -660,10 +649,6 @@ function mapCargoLoadLineRow(row, tanks = null) {
     manualOverride: row.manual_override ?? null,
     commodityId:
       row.commodity_id != null && row.commodity_id !== '' ? String(row.commodity_id) : null,
-    movementType: row.movement_type ?? null,
-    movementTypeSource: row.movement_type_source || 'auto',
-    movementTypeReason: row.movement_type_reason ?? null,
-    movementTypeSetAt: row.movement_type_set_at ?? null,
   };
   if (Array.isArray(tanks)) {
     base.tanks = tanks;
@@ -718,38 +703,25 @@ async function refreshOperationalProgressAfterCargoSave(q, operationId) {
   } catch (e) {
     console.error('[cargo-save] hourly progress refresh failed', { operationId, err: e?.message || e });
   }
-  try {
-    await retagKurasForOperation(q, operationId);
-  } catch (e) {
-    console.error('[cargo-save] kuras re-tag failed', { operationId, err: e?.message || e });
-  }
 }
 
 async function insertCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const { commodityType = 'Liquid', measurementBasis = 'mass', priorTags = new Map(), actorUserId = null } = opts;
+  const { commodityType = 'Liquid', measurementBasis = 'mass' } = opts;
   const enriched = await attachAtgMassSnapshots(client, lines, { commodityType, measurementBasis });
   const lineIds = [];
   const out = [];
   for (let i = 0; i < enriched.length; i++) {
     const ln = enriched[i];
-    const tag = resolveMovementTypeColumns(
-      ln.movementType,
-      priorTags.get(new Date(ln.startIso).toISOString()),
-      actorUserId
-    );
     const ins = await client.query(
       `INSERT INTO operation_cargo_load_lines (
          operational_activity_id, line_order, qty, manual_qty, atg_qty_mode,
          started_at, ended_at, commodity_id,
-         atg_mass_delta, atg_mass_detail, atg_mass_computed_at, manual_override,
-         movement_type, movement_type_source, movement_type_reason, movement_type_set_by, movement_type_set_at
+         atg_mass_delta, atg_mass_detail, atg_mass_computed_at, manual_override
        )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::numeric, $10::jsonb,
-         CASE WHEN $9::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END, $11::jsonb,
-         $12, $13, $14::jsonb, $15, $16)
+         CASE WHEN $9::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END, $11::jsonb)
        RETURNING id, line_order, qty, manual_qty, atg_qty_mode, started_at, ended_at, commodity_id,
-         atg_mass_delta, atg_mass_detail, atg_mass_computed_at, manual_override,
-         movement_type, movement_type_source, movement_type_reason, movement_type_set_at`,
+         atg_mass_delta, atg_mass_detail, atg_mass_computed_at, manual_override`,
       [
         operationalActivityId,
         ln.lineOrder ?? i + 1,
@@ -762,11 +734,6 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
         ln.atgMassDelta,
         ln.atgMassDetail ? JSON.stringify(ln.atgMassDetail) : null,
         ln.manualOverride ? JSON.stringify(ln.manualOverride) : null,
-        tag.movementType,
-        tag.source,
-        tag.reason ? JSON.stringify(tag.reason) : null,
-        tag.setBy,
-        tag.setAt,
       ]
     );
     const loadLineId = Number(ins.rows[0].id);
@@ -782,11 +749,10 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
 }
 
 async function replaceCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const priorTags = await loadPriorMovementTags(client, operationalActivityId);
   await client.query(`DELETE FROM operation_cargo_load_lines WHERE operational_activity_id = $1`, [
     operationalActivityId,
   ]);
-  return insertCargoLoadLines(client, operationalActivityId, lines, { ...opts, priorTags });
+  return insertCargoLoadLines(client, operationalActivityId, lines, opts);
 }
 
 async function loadOperationPortId(q, operationId) {
@@ -1170,7 +1136,6 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
         savedLines = await insertCargoLoadLines(client, row.id, linePack.lines, {
           commodityType: commodityType || 'Liquid',
           measurementBasis,
-          actorUserId: req.userId ?? null,
         });
         savedLines = enrichCargoLoadLinesList(
           savedLines,
@@ -1393,7 +1358,6 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
         savedLinesPut = await replaceCargoLoadLines(client, entryId, linePack.lines, {
           commodityType: commodityTypePut || 'Liquid',
           measurementBasis: measurementBasisPut,
-          actorUserId: req.userId ?? null,
         });
         savedLinesPut = enrichCargoLoadLinesList(
           savedLinesPut,
@@ -1900,18 +1864,12 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
                     'commodityShortName', sc.short_name,
                     'commodityName', sc.name,
                     'commodityGroup', sc.commodity_group,
-                    'movementType', l.movement_type,
-                    'movementTypeSource', l.movement_type_source,
-                    'movementTypeReason', l.movement_type_reason,
-                    'movementTypeSetAt', l.movement_type_set_at,
-                    'movementTypeSetByName', NULLIF(TRIM(COALESCE(mu.display_name, mu.username, '')), ''),
                     'tanks', COALESCE(lt.tanks_json, '[]'::jsonb)
                   )
                   ORDER BY l.line_order ASC, l.id ASC
                 ) AS lines_json
          FROM operation_cargo_load_lines l
          LEFT JOIN si_commodities sc ON sc.id = l.commodity_id AND sc.deleted_at IS NULL
-         LEFT JOIN users mu ON mu.id = l.movement_type_set_by
          LEFT JOIN LATERAL (
            SELECT jsonb_agg(
                     jsonb_build_object('id', t.id, 'code', t.code, 'name', t.name)
@@ -2031,11 +1989,6 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
           commodityShortName: l.commodityShortName ? String(l.commodityShortName).trim() : null,
           commodityName: l.commodityName ? String(l.commodityName).trim() : null,
           commodityGroup: l.commodityGroup ? String(l.commodityGroup).trim() : null,
-          movementType: l.movementType ?? null,
-          movementTypeSource: l.movementTypeSource || 'auto',
-          movementTypeReason: l.movementTypeReason ?? null,
-          movementTypeSetAt: l.movementTypeSetAt ?? null,
-          movementTypeSetByName: l.movementTypeSetByName ?? null,
         };
       });
       const unionFromLines = unionTanksFromLines(cargoLoadLines);

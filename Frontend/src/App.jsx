@@ -42,7 +42,6 @@ import MasterPort from './pages/MasterPort'
 import MasterJetty from './pages/MasterJetty'
 import MasterJettyLayout from './pages/MasterJettyLayout'
 import MasterTanks from './pages/MasterTanks'
-import MasterKurasRules from './pages/MasterKurasRules'
 import MasterVessel from './pages/MasterVessel'
 import MasterCompany from './pages/MasterCompany'
 import TankFarm from './pages/TankFarm'
@@ -204,7 +203,6 @@ function App() {
                   <Route path="/master/jetty" element={<MasterJetty />} />
                   <Route path="/master/jetty-layout" element={<MasterJettyLayout />} />
                   <Route path="/master/tanks" element={<MasterTanks />} />
-                  <Route path="/master/kuras-rules" element={<MasterKurasRules />} />
                   <Route path="/master/vessel" element={<MasterVessel />} />
                   <Route path="/master/company" element={<MasterCompany />} />
                   <Route path="/tank-farm" element={<TankFarm />} />
