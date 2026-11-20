@@ -209,6 +209,8 @@ export default function OperatorExecutionPage() {
             cargoMetricLabel={exec.cargoMetricLabel}
             segmentHourlyByKey={exec.segmentHourlyByKey}
             segmentHourlyLoading={exec.segmentHourlyLoading}
+            operationId={operationId}
+            scheduleTimezone={exec.tz}
             canEdit={editable}
             busy={exec.busy}
             onStart={handleStart}

@@ -11,6 +11,8 @@ export default function OperatorCargoSegmentList({
   canEdit,
   busy,
   onEditSegment,
+  operationId = null,
+  scheduleTimezone = 'Asia/Jakarta',
 }) {
   const { t } = useTranslation('operator')
   const list = Array.isArray(segments) ? segments : []
@@ -82,8 +84,13 @@ export default function OperatorCargoSegmentList({
                   hourlyLoading={segmentHourlyLoading}
                   purpose={purpose}
                   metricLabel={cargoMetricLabel}
-                  showAtgHourly
+                  showAtgHourly={Boolean(seg.showAtgHourly)}
+                  showManualHourly={Boolean(seg.showManualHourly)}
+                  showManualCheckpoints={Boolean(seg.showManualCheckpoints)}
+                  solidCommodity={Boolean(seg.showManualHourly && !seg.showAtgHourly)}
+                  operationId={operationId}
                   openLoadLineId={seg.loadLineId}
+                  scheduleTimezone={scheduleTimezone}
                 />
               ) : null}
             </li>

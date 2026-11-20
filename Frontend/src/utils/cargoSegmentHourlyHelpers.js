@@ -6,14 +6,25 @@ function parseSavedLoadLineId(key) {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
+function isSolidCommodity(commodityType) {
+  return String(commodityType || '').trim() === 'Solid'
+}
+
 /**
  * @param {Array<object>} draftLines
  * @param {Map<string, { hasAtg?: boolean }>} tankMetaById
  * @param {(local: string) => string|null} normalizeStartEnd - normalizeForApi bound to tz
+ * @param {string} [commodityType]
  */
-export function buildCargoSegmentHourlyRequests(draftLines, tankMetaById, normalizeStartEnd) {
+export function buildCargoSegmentHourlyRequests(
+  draftLines,
+  tankMetaById,
+  normalizeStartEnd,
+  commodityType = 'Liquid'
+) {
   if (!Array.isArray(draftLines) || draftLines.length === 0) return []
 
+  const solid = isSolidCommodity(commodityType)
   const segments = []
   for (const row of draftLines) {
     const clientKey = String(row.key ?? '')
@@ -22,13 +33,17 @@ export function buildCargoSegmentHourlyRequests(draftLines, tankMetaById, normal
     const startLocal = row.start ? String(row.start).trim() : ''
     if (!startLocal) continue
 
-    const tankIds = (row.tankIds || [])
-      .map(String)
-      .filter((id) => tankMetaById?.get(id)?.hasAtg)
-    if (tankIds.length === 0) continue
-
     const atgQtyMode = row.atgQtyMode === 'manual' ? 'manual' : 'auto'
-    if (atgQtyMode === 'manual') continue
+    const tankIds = solid
+      ? []
+      : (row.tankIds || [])
+          .map(String)
+          .filter((id) => tankMetaById?.get(id)?.hasAtg)
+
+    if (!solid) {
+      if (tankIds.length === 0) continue
+      if (atgQtyMode === 'manual') continue
+    }
 
     let startAt = null
     let endAt = null
@@ -52,7 +67,8 @@ export function buildCargoSegmentHourlyRequests(draftLines, tankMetaById, normal
       startAt,
       endAt,
       tankIds,
-      atgQtyMode,
+      atgQtyMode: solid ? 'manual' : atgQtyMode,
+      commodityType: solid ? 'Solid' : 'Liquid',
     })
   }
   return segments
@@ -62,22 +78,28 @@ export function buildCargoSegmentHourlyRequests(draftLines, tankMetaById, normal
  * Build POST /cargo-segment-hourly payloads from persisted operator segment rows.
  * @param {Array<object>} segments - operator segments with clientKey, loadLineId, startAt, endAt, tankIds, atgQtyMode
  * @param {Map<string, { hasAtg?: boolean }>} tankMetaById
+ * @param {string} [commodityType]
  */
-export function buildOperatorSegmentHourlyRequests(segments, tankMetaById) {
+export function buildOperatorSegmentHourlyRequests(segments, tankMetaById, commodityType = 'Liquid') {
   if (!Array.isArray(segments) || segments.length === 0) return []
 
+  const solid = isSolidCommodity(commodityType)
   const out = []
   for (const seg of segments) {
     const clientKey = String(seg.clientKey ?? '')
     if (!clientKey || !seg.startAt) continue
 
     const atgQtyMode = seg.atgQtyMode === 'manual' ? 'manual' : 'auto'
-    if (atgQtyMode === 'manual') continue
+    const tankIds = solid
+      ? []
+      : (seg.tankIds || [])
+          .map(String)
+          .filter((id) => tankMetaById?.get(id)?.hasAtg)
 
-    const tankIds = (seg.tankIds || [])
-      .map(String)
-      .filter((id) => tankMetaById?.get(id)?.hasAtg)
-    if (tankIds.length === 0) continue
+    if (!solid) {
+      if (atgQtyMode === 'manual') continue
+      if (tankIds.length === 0) continue
+    }
 
     const loadLineId = parseSavedLoadLineId(seg.loadLineId ?? seg.clientKey)
     out.push({
@@ -86,7 +108,8 @@ export function buildOperatorSegmentHourlyRequests(segments, tankMetaById) {
       startAt: seg.startAt,
       endAt: seg.endAt || null,
       tankIds,
-      atgQtyMode,
+      atgQtyMode: solid ? 'manual' : atgQtyMode,
+      commodityType: solid ? 'Solid' : 'Liquid',
     })
   }
   return out
@@ -97,7 +120,7 @@ export function cargoSegmentHourlySignature(segments, liveTick = 0) {
   return `${liveTick}|${(segments || [])
     .map(
       (s) =>
-        `${s.clientKey}|${s.startAt}|${s.endAt ?? ''}|${(s.tankIds || []).join(',')}|${s.atgQtyMode || 'auto'}`
+        `${s.clientKey}|${s.startAt}|${s.endAt ?? ''}|${(s.tankIds || []).join(',')}|${s.atgQtyMode || 'auto'}|${s.commodityType || 'Liquid'}`
     )
     .join(';')}`
 }

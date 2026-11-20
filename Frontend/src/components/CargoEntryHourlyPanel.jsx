@@ -21,6 +21,7 @@ export function ManualCheckpointPanel({
   scheduleTimezone,
   metricLabel,
   disabled,
+  checkpointTitleKey = 'cargoManualCheckpointTitle',
 }) {
   const { t } = useTranslation('pages')
   const [checkpoints, setCheckpoints] = useState([])
@@ -88,7 +89,7 @@ export function ManualCheckpointPanel({
 
   return (
     <div className="cargo-ops-session__checkpoint-panel cargo-entry-hourly__manual">
-      <p className="cargo-ops-session__live-title">{t('cargoManualCheckpointTitle')}</p>
+      <p className="cargo-ops-session__live-title">{t(checkpointTitleKey)}</p>
       <div className="cargo-ops-session__checkpoint-form">
         <div className="berthing-modal__field">
           <label className="berthing-modal__label" htmlFor="cargo-manual-cp-time">
@@ -167,7 +168,9 @@ export default function CargoEntryHourlyPanel({
   purpose,
   metricLabel,
   showAtgHourly = true,
+  showManualHourly = false,
   showManualCheckpoints = false,
+  solidCommodity = false,
   operationId = null,
   openLoadLineId = null,
   scheduleTimezone = 'Asia/Jakarta',
@@ -188,71 +191,81 @@ export default function CargoEntryHourlyPanel({
     ? t('cargoEntryHourlyWindowClosed', { start: segmentStartLabel, end: segmentEndLabel })
     : t('cargoEntryHourlyWindowOpen', { start: segmentStartLabel })
 
+  const showHourlyTable = showAtgHourly || showManualHourly
+  const panelId = `cargo-entry-hourly-body-${openLoadLineId || segmentStart || 'draft'}`
+
+  const hourlyTableSection =
+    showHourlyTable &&
+    (showAtgHourly || showManualHourly) && (
+      <div className={`cargo-entry-hourly${panelOpen ? ' cargo-entry-hourly--open' : ''}`}>
+        <button
+          type="button"
+          className="cargo-entry-hourly__toggle"
+          onClick={() => setPanelOpen((v) => !v)}
+          aria-expanded={panelOpen}
+          aria-controls={panelId}
+        >
+          <span className="cargo-entry-hourly__chevron" aria-hidden>
+            {panelOpen ? '▾' : '▸'}
+          </span>
+          <span className="cargo-entry-hourly__title">{t('cargoHourlyTableTitle')}</span>
+        </button>
+        {panelOpen ? (
+          <div id={panelId} className="cargo-entry-hourly__body">
+            <p className="text-steel cargo-entry-hourly__scope">{windowLabel}</p>
+            {hourlyLoading && hourlyBuckets.length === 0 ? (
+              <p className="text-steel cargo-entry-hourly__hint">{t('cargoEntryHourlyLoading')}</p>
+            ) : null}
+            {hourlyData?.error ? (
+              <p className="operational-form-warning">{hourlyData.error}</p>
+            ) : null}
+            {!hourlyLoading && hourlyBuckets.length === 0 && !hourlyData?.error ? (
+              <p className="text-steel cargo-entry-hourly__hint">{t('cargoEntryHourlyEmpty')}</p>
+            ) : null}
+            {movedQty != null && Number.isFinite(Number(movedQty)) ? (
+              <p className="text-steel cargo-entry-hourly__summary">
+                {t('cargoOpsSessionMovedSoFar')}: <strong>{formatQty(movedQty, metricLabel)}</strong>
+              </p>
+            ) : null}
+            {clientHourlySummary.currentHourLine ? (
+              <p className="text-steel cargo-ops-session__hourly-line">{clientHourlySummary.currentHourLine}</p>
+            ) : null}
+            {hourlyBuckets.length > 0 ? (
+              <HourlyCargoProgressTable
+                hourlyBuckets={hourlyBuckets}
+                unit={unit}
+                purpose={purpose}
+                compact
+                collapsible
+                collapsedRowLimit={6}
+                segmentStartLabel={segmentStartLabel}
+                currentHourLine={clientHourlySummary.currentHourLine}
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    )
+
   if (showManualCheckpoints) {
     return (
-      <ManualCheckpointPanel
-        operationId={operationId}
-        openLoadLineId={openLoadLineId}
-        scheduleTimezone={scheduleTimezone}
-        metricLabel={metricLabel}
-        disabled={false}
-      />
+      <>
+        <ManualCheckpointPanel
+          operationId={operationId}
+          openLoadLineId={openLoadLineId}
+          scheduleTimezone={scheduleTimezone}
+          metricLabel={metricLabel}
+          disabled={false}
+          checkpointTitleKey={
+            solidCommodity ? 'cargoManualCheckpointTitleSolid' : 'cargoManualCheckpointTitle'
+          }
+        />
+        {hourlyTableSection}
+      </>
     )
   }
 
-  if (!showAtgHourly) return null
+  if (!showHourlyTable) return null
 
-  return (
-    <div className={`cargo-entry-hourly${panelOpen ? ' cargo-entry-hourly--open' : ''}`}>
-      <button
-        type="button"
-        className="cargo-entry-hourly__toggle"
-        onClick={() => setPanelOpen((v) => !v)}
-        aria-expanded={panelOpen}
-        aria-controls={`cargo-entry-hourly-body-${openLoadLineId || segmentStart || 'draft'}`}
-      >
-        <span className="cargo-entry-hourly__chevron" aria-hidden>
-          {panelOpen ? '▾' : '▸'}
-        </span>
-        <span className="cargo-entry-hourly__title">{t('cargoHourlyTableTitle')}</span>
-      </button>
-      {panelOpen ? (
-        <div
-          id={`cargo-entry-hourly-body-${openLoadLineId || segmentStart || 'draft'}`}
-          className="cargo-entry-hourly__body"
-        >
-          <p className="text-steel cargo-entry-hourly__scope">{windowLabel}</p>
-          {hourlyLoading && hourlyBuckets.length === 0 ? (
-            <p className="text-steel cargo-entry-hourly__hint">{t('cargoEntryHourlyLoading')}</p>
-          ) : null}
-          {hourlyData?.error ? (
-            <p className="operational-form-warning">{hourlyData.error}</p>
-          ) : null}
-          {!hourlyLoading && hourlyBuckets.length === 0 && !hourlyData?.error ? (
-            <p className="text-steel cargo-entry-hourly__hint">{t('cargoEntryHourlyEmpty')}</p>
-          ) : null}
-          {movedQty != null && Number.isFinite(Number(movedQty)) ? (
-            <p className="text-steel cargo-entry-hourly__summary">
-              {t('cargoOpsSessionMovedSoFar')}: <strong>{formatQty(movedQty, metricLabel)}</strong>
-            </p>
-          ) : null}
-          {clientHourlySummary.currentHourLine ? (
-            <p className="text-steel cargo-ops-session__hourly-line">{clientHourlySummary.currentHourLine}</p>
-          ) : null}
-          {hourlyBuckets.length > 0 ? (
-            <HourlyCargoProgressTable
-              hourlyBuckets={hourlyBuckets}
-              unit={unit}
-              purpose={purpose}
-              compact
-              collapsible
-              collapsedRowLimit={6}
-              segmentStartLabel={segmentStartLabel}
-              currentHourLine={clientHourlySummary.currentHourLine}
-            />
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  )
+  return hourlyTableSection
 }

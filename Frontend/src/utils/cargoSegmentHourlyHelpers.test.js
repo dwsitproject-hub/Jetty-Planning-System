@@ -123,6 +123,48 @@ describe('cargoSegmentHourlyHelpers', () => {
     assert.equal(segments[0].endAt, '2026-08-28T00:47:00.000Z')
   })
 
+  it('buildCargoSegmentHourlyRequests includes solid tankless segments', () => {
+    const segments = buildCargoSegmentHourlyRequests(
+      [
+        {
+          key: '501',
+          start: '2026-09-03T00:01',
+          end: '2026-09-03T05:00',
+          tankIds: [],
+          atgQtyMode: 'auto',
+        },
+      ],
+      tankMeta,
+      normalize,
+      'Solid'
+    )
+    assert.equal(segments.length, 1)
+    assert.equal(segments[0].loadLineId, '501')
+    assert.deepEqual(segments[0].tankIds, [])
+    assert.equal(segments[0].atgQtyMode, 'manual')
+    assert.equal(segments[0].commodityType, 'Solid')
+  })
+
+  it('buildOperatorSegmentHourlyRequests includes solid segments', () => {
+    const segments = buildOperatorSegmentHourlyRequests(
+      [
+        {
+          clientKey: '401',
+          loadLineId: '401',
+          startAt: '2026-08-26T16:30:00.000Z',
+          endAt: '2026-08-28T00:47:00.000Z',
+          tankIds: [],
+          atgQtyMode: 'auto',
+        },
+      ],
+      tankMeta,
+      'Solid'
+    )
+    assert.equal(segments.length, 1)
+    assert.equal(segments[0].tankIds.length, 0)
+    assert.equal(segments[0].atgQtyMode, 'manual')
+  })
+
   it('cargoSegmentHourlySignature changes when segment windows differ', () => {
     const a = cargoSegmentHourlySignature([
       { clientKey: '1', startAt: 's1', endAt: 'e1', tankIds: ['5102'], atgQtyMode: 'auto' },

@@ -1016,6 +1016,7 @@
   "cargoHourlyExportHint": "Download all hourly transfer rate rows as Excel",
   "cargoHourlyExportFailed": "Export failed. Please try again.",
   "cargoManualCheckpointTitle": "Manual readings (ATG down)",
+  "cargoManualCheckpointTitleSolid": "Log cumulative moved qty",
   "cargoManualCheckpointAdd": "Log manual reading",
   "cargoManualCheckpointTime": "Reading time",
   "cargoManualCheckpointCumulativeQty": "Cumulative moved qty",

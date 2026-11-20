@@ -836,6 +836,7 @@ export default function OperationalMilestoneWorkspace({
     cargoLoadLinesDraft,
     tankMetaById,
     normalizeStartEnd: normalizeSegmentInstant,
+    commodityType,
     liveAtgTick,
     enabled: Boolean(useCargoSessionMode && formModalOpen && operationId),
   })
@@ -2071,7 +2072,13 @@ export default function OperationalMilestoneWorkspace({
                                 const n = Number(String(row.key))
                                 return Number.isFinite(n) && n > 0 ? String(n) : null
                               })()}
-                              showAtgHourly={hasAtgTanks && atgQtyMode === 'auto'}
+                              showAtgHourly={commodityType === 'Liquid' && hasAtgTanks && atgQtyMode === 'auto'}
+                              showManualHourly={
+                                commodityType === 'Solid' ||
+                                atgQtyMode === 'manual' ||
+                                (!hasAtgTanks && manualTankIds.length > 0)
+                              }
+                              solidCommodity={commodityType === 'Solid'}
                               showManualCheckpoints={
                                 !row.end &&
                                 row.start &&
@@ -2081,7 +2088,8 @@ export default function OperationalMilestoneWorkspace({
                                     Number.isFinite(n) && n > 0 ? String(n) : null
                                   return (
                                     Boolean(lineId) &&
-                                    (atgQtyMode === 'manual' ||
+                                    (commodityType === 'Solid' ||
+                                      atgQtyMode === 'manual' ||
                                       (!hasAtgTanks && manualTankIds.length > 0))
                                   )
                                 })()

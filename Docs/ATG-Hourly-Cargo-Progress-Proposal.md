@@ -298,7 +298,7 @@ Please confirm or adjust before development starts:
 
 - Auto-detect “operation complete” from ATG (operator still clicks Complete).
 - Replacing daily progress charts (hourly is additive).
-- Solid commodity / non-tank cargo (liquid + ATG tanks only).
+- ~~Solid commodity / non-tank cargo (liquid + ATG tanks only).~~ Implemented: tankless manual hourly (checkpoints + closed-segment spread) for Management Dashboard and operator cargo segments.
 - Full multi-hour “drain phase” state machine (future P4).
 - Changes to Tankvision poller frequency (separate ops decision).
 

@@ -335,7 +335,8 @@ export function useOperatorExecution(operationId) {
     operationId,
     segments: cargoSegments,
     tankOptions,
-    enabled: commodityType === 'Liquid' && Boolean(operationId),
+    commodityType,
+    enabled: Boolean(operationId),
   })
 
   const milestones = useMemo(() => {

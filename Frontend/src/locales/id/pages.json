@@ -1016,6 +1016,7 @@
   "cargoHourlyExportHint": "Unduh semua baris laju transfer per jam sebagai Excel",
   "cargoHourlyExportFailed": "Ekspor gagal. Silakan coba lagi.",
   "cargoManualCheckpointTitle": "Pembacaan manual (ATG mati)",
+  "cargoManualCheckpointTitleSolid": "Catat kumulatif qty dipindahkan",
   "cargoManualCheckpointAdd": "Catat pembacaan manual",
   "cargoManualCheckpointTime": "Waktu pembacaan",
   "cargoManualCheckpointCumulativeQty": "Kumulatif qty dipindahkan",

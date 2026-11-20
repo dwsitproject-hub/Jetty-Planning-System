@@ -962,6 +962,59 @@ async function loadManualCheckpointsForLine(db, loadLineId) {
 }
 
 /**
+ * Solid / tankless cargo: manual checkpoints or closed-segment qty spread across clock hours.
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} ctx
+ * @param {object} line
+ * @param {object} [opts]
+ */
+export async function getHourlyBucketsForTanklessLine(db, ctx, line, opts = {}) {
+  const startIso = line.startedAt || line.startAt;
+  if (!startIso) return [];
+
+  const endIso = line.endedAt || line.endAt || new Date().toISOString();
+  const thresholds = {
+    flatRateThresholdTph: ctx.flatRateThresholdTph ?? DEFAULT_FLAT_RATE_THRESHOLD_TPH,
+    minQtyMovedT: ctx.minQtyMovedT ?? DEFAULT_MIN_QTY_MOVED_T,
+  };
+
+  if (line.endedAt && line.atgHourlyDetail && !opts.forceRecompute) {
+    const stored = Array.isArray(line.atgHourlyDetail) ? line.atgHourlyDetail : [];
+    if (stored.length) return stored;
+  }
+
+  if (line.id) {
+    const persisted = await loadPersistedHourlyBuckets(db, line.id);
+    if (persisted.length && line.endedAt && !opts.forceRecompute) {
+      return persisted;
+    }
+  }
+
+  const bucketLists = [];
+  const checkpoints = line.id ? await loadManualCheckpointsForLine(db, line.id) : [];
+  if (checkpoints.length) {
+    bucketLists.push(
+      computeHourlyBucketsFromManualCheckpoints(checkpoints, startIso, endIso, ctx.timezone, ctx)
+    );
+  } else if ((line.endedAt || line.endAt) && (line.qty != null || line.manualQty != null)) {
+    const cumulativeQty = Number(line.qty) || Number(line.manualQty) || 0;
+    if (cumulativeQty > 0) {
+      bucketLists.push(
+        computeHourlyBucketsFromManualCheckpoints(
+          [{ recordedAt: endIso, cumulativeQty }],
+          startIso,
+          endIso,
+          ctx.timezone,
+          ctx
+        )
+      );
+    }
+  }
+
+  return mergeHourlyBuckets(bucketLists, thresholds);
+}
+
+/**
  * Hourly buckets for a single cargo load line (not merged with other segments).
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {object} ctx from loadOperationProgressContext
@@ -972,7 +1025,10 @@ async function loadManualCheckpointsForLine(db, loadLineId) {
 export async function getHourlyBucketsForLineEntry(db, ctx, line, opts = {}) {
   const { partitionLineTanks, resolveLineMode } = await getCargoProgressHelpers();
   const startIso = line.startedAt || line.startAt;
-  if (!startIso || !line.tankIds?.length) return [];
+  if (!startIso) return [];
+  if (!line.tankIds?.length) {
+    return getHourlyBucketsForTanklessLine(db, ctx, line, opts);
+  }
 
   const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds, line.manualOverrideTankIds);
   const mode = resolveLineMode({
@@ -1090,7 +1146,7 @@ export async function getHourlyOperationalProgress(db, ctx, opts = {}) {
   const allBucketLists = [];
 
   for (const line of ctx.lines) {
-    if (!line.startedAt || !line.tankIds?.length) continue;
+    if (!line.startedAt) continue;
     const lineBuckets = await getHourlyBucketsForLineEntry(db, ctx, line, opts);
     if (lineBuckets.length) allBucketLists.push(lineBuckets);
   }
@@ -1180,9 +1236,9 @@ export async function aggregateHourlyProgressForOperation(db, operationId, opts 
   let upserted = 0;
 
   for (const line of ctx.lines) {
-    if (!line.startedAt || !line.tankIds?.length) continue;
+    if (!line.startedAt) continue;
 
-    const lineBuckets = await computeHourlyBucketsForLine(db, line, ctx);
+    const lineBuckets = await getHourlyBucketsForLineEntry(db, ctx, line, opts);
 
     for (const match of lineBuckets) {
       const bucketEndMs = new Date(match.hourEnd).getTime();
