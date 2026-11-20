@@ -36,7 +36,6 @@ const MASTER_SECTIONS = [
       { path: '/master/jetty-layout', titleKey: 'masterHubJettyLayoutTitle', descKey: 'masterHubJettyLayoutDesc', badgeKey: 'masterBadgePerPort', badgeKind: 'per-port', sourceKind: 'local' },
       { path: '/master/tanks', titleKey: 'masterHubTanksTitle', descKey: 'masterHubTanksDesc', badgeKey: 'masterBadgePerPort', badgeKind: 'per-port', sourceKind: 'local' },
       { path: '/master/kuras-rules', titleKey: 'masterHubKurasRulesTitle', descKey: 'masterHubKurasRulesDesc', badgeKey: 'masterBadgePerPort', badgeKind: 'per-port', sourceKind: 'local' },
-      { path: '/master/no-flow-reasons', titleKey: 'masterHubNoFlowReasonsTitle', descKey: 'masterHubNoFlowReasonsDesc', badgeKey: 'masterBadgeShared', badgeKind: 'shared', sourceKind: 'local' },
       { path: '/tank-farm', titleKey: 'tankFarmTitle', descKey: 'tankFarmDesc', badgeKey: 'masterBadgePerPort', badgeKind: 'per-port', sourceKind: 'tankvision' },
     ],
   },

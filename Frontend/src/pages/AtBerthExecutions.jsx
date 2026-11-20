@@ -38,7 +38,6 @@ import CargoScheduleProgressIndicator, {
 } from '../components/CargoScheduleProgressIndicator'
 import AtBerthFlowPatternPanel from '../components/AtBerthFlowPatternPanel'
 import AtBerthVesselHourlyRate from '../components/AtBerthVesselHourlyRate'
-import NoFlowLogPanel from '../components/noflow/NoFlowLogPanel.jsx'
 import { getEtcBreach } from '../utils/etcBreach'
 import '../styles/etc-breach.css'
 import '../styles/allocation.css'
@@ -430,7 +429,6 @@ function AtBerthDetailPanel({ r, onOpenSiDetail, nowMs = Date.now() }) {
           jettyName={r.jetty}
         />
       ) : null}
-      {r.operationId ? <NoFlowLogPanel operationId={r.operationId} /> : null}
     </div>
   )
 }
