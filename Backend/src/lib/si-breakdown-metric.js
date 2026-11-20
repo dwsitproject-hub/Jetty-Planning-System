@@ -44,7 +44,7 @@ export async function validateBreakdownMetricRules(client, breakdown) {
 }
 
 /**
- * @param {Array<{ cargoType: string, unit: string }>} cargo
+ * @param {Array<{ cargoType?: string|null, cargoHubCode?: string|null, unit: string, commodity?: { id: number, default_metric_id?: number|null, default_metric_code?: string|null }|null }>} cargo
  * @param {Map<string, { id: number, default_metric_id?: number|null, default_metric_code?: string|null }>} commodityByShortName
  * @param {(raw: string) => string} normalizeCargoShortName
  * @returns {Array<{ field: string, issue: string, expected_unit?: string }>|null}
@@ -53,14 +53,17 @@ export function validateIntegrationCargoMetricRules(cargo, commodityByShortName,
   const issues = [];
   for (let i = 0; i < cargo.length; i += 1) {
     const line = cargo[i];
-    const commodity = commodityByShortName.get(normalizeCargoShortName(line.cargoType));
+    const commodity =
+      line.commodity ??
+      commodityByShortName.get(normalizeCargoShortName(line.cargoType));
     if (!commodity?.default_metric_id) continue;
     const expected = String(commodity.default_metric_code || '').toUpperCase();
     const submitted = String(line.unit || '').toUpperCase();
     if (submitted !== expected) {
+      const label = line.cargoType || line.cargoHubCode || 'cargo';
       issues.push({
         field: `cargo[${i}].unit`,
-        issue: `${line.cargoType} must use ${expected} (configured default unit).`,
+        issue: `${label} must use ${expected} (configured default unit).`,
         expected_unit: expected,
       });
     }

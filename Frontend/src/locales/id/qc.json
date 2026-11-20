@@ -38,7 +38,22 @@
     "avgMoisture": "Air {{value}}",
     "metric": "{{label}} {{value}}",
     "updatedBy": "Diperbarui {{when}} oleh {{who}}",
-    "updatedAt": "Diperbarui {{when}}"
+    "updatedAt": "Diperbarui {{when}}",
+    "filterSailed": "Sudah berlayar",
+    "sortCastOff": "Terakhir berlayar",
+    "sailedRange": "Rentang tanggal cast off",
+    "sailedRangeError": {
+      "required": "Pilih kedua tanggal.",
+      "order": "Tanggal awal harus sama atau sebelum tanggal akhir.",
+      "tooLong": "Pilih rentang maksimal satu tahun."
+    },
+    "noSailed": "Tidak ada kapal yang berlayar dalam rentang tanggal ini.",
+    "castOffPrefix": "CO",
+    "scopeLabel": "Tampilkan kapal",
+    "scopeActive": "Sedang sandar",
+    "castOffLabel": "Cast off",
+    "sailedFrom": "Cast off dari",
+    "sailedTo": "Cast off sampai"
   },
   "entry": {
     "back": "Kembali ke daftar kapal",
@@ -57,7 +72,9 @@
     "noRecords": "Belum ada sampel tercatat.",
     "remark": "Catatan",
     "startTime": "Waktu mulai",
-    "endTime": "Waktu selesai"
+    "endTime": "Waktu selesai",
+    "readOnlyTitle": "Sudah berlayar — hanya lihat",
+    "readOnlyText": "Kapal ini sudah berlayar. Data sampling dan dokumen bisa dilihat, tetapi tidak bisa diubah."
   },
   "summary": {
     "count": "Sampel",

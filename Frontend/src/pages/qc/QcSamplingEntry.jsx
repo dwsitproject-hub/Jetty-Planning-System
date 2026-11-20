@@ -6,6 +6,7 @@ import QcReportSummary from '../../components/qc/QcReportSummary'
 import QcSamplingDocuments from '../../components/qc/QcSamplingDocuments'
 import QcSaveBar from '../../components/qc/QcSaveBar'
 import QcStatusChip from '../../components/qc/QcStatusChip'
+import ReadOnlyBanner from '../../components/qc/ReadOnlyBanner'
 import SampleList from '../../components/qc/SampleList'
 import SampleQuickAdd from '../../components/qc/SampleQuickAdd'
 import SamplingCommodityCards from '../../components/sampling/SamplingCommodityCards'
@@ -106,6 +107,7 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
   }
 
   const hasCards = (sampling.commodities || []).length > 0
+  const readOnly = Boolean(header.readOnly)
 
   return (
     <div className={`qc-entry${embedded ? ' qc-entry--embedded' : ''}`}>
@@ -132,18 +134,25 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
 
         <SamplingSummaryStrip count={sampleRecords.length} avgFfa={averages.avgFfa} avgMoisture={averages.avgMoisture} />
 
-        <QcEntryBanners
-          entry={entry}
-          message={message}
-          onOverwrite={(mode) => handleSave(mode, { force: true })}
-        />
+        {readOnly ? (
+          <ReadOnlyBanner />
+        ) : (
+          <QcEntryBanners
+            entry={entry}
+            message={message}
+            onOverwrite={(mode) => handleSave(mode, { force: true })}
+          />
+        )}
 
         {hasCards ? (
           <div className="qc-entry__body qc-entry__body--cards">
-            <QcReportSummary sampling={sampling} onChange={entry.setField} timesOnly />
+            <fieldset className="qc-readonly-fieldset" disabled={readOnly}>
+              <QcReportSummary sampling={sampling} onChange={entry.setField} timesOnly />
+            </fieldset>
             <SamplingCommodityCards
               commodities={sampling.commodities}
               legacyUnassigned={sampling.legacyUnassigned}
+              readOnly={readOnly}
               variant="qc"
               sampleRefKind={sampleRefKind}
               tanks={tanks}
@@ -154,6 +163,7 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
               onDeleteRecord={(commodityId, id) => entry.removeRecord(id, commodityId)}
               renderDocuments={(card) => (
                 <QcSamplingDocuments
+                  readOnly={readOnly}
                   documents={card.documents || []}
                   extractingKey={extract.extractingKey}
                   onAddFiles={(files) => entry.addFiles(files, card.commodityId)}
@@ -166,14 +176,16 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
           </div>
         ) : (
           <div className="qc-entry__body">
-            <div className="qc-entry__col qc-entry__col--main">
-              <SampleQuickAdd
-                records={sampling.records}
-                onAdd={entry.addRecord}
-                onPendingChange={setPendingTyped}
-                sampleRefKind={sampleRefKind}
-                tanks={tanks}
-              />
+            <fieldset className="qc-entry__col qc-entry__col--main qc-readonly-fieldset" disabled={readOnly}>
+              {readOnly ? null : (
+                <SampleQuickAdd
+                  records={sampling.records}
+                  onAdd={entry.addRecord}
+                  onPendingChange={setPendingTyped}
+                  sampleRefKind={sampleRefKind}
+                  tanks={tanks}
+                />
+              )}
               <SampleList
                 records={sampling.records}
                 onUpdate={entry.updateRecord}
@@ -181,10 +193,13 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
                 sampleRefKind={sampleRefKind}
                 tanks={tanks}
               />
-            </div>
+            </fieldset>
             <div className="qc-entry__col qc-entry__col--side">
-              <QcReportSummary sampling={sampling} errors={summaryErrors} computed={averages} onChange={entry.setField} />
+              <fieldset className="qc-readonly-fieldset" disabled={readOnly}>
+                <QcReportSummary sampling={sampling} errors={summaryErrors} computed={averages} onChange={entry.setField} />
+              </fieldset>
               <QcSamplingDocuments
+                readOnly={readOnly}
                 documents={sampling.documents}
                 extractingKey={extract.extractingKey}
                 onAddFiles={entry.addFiles}
@@ -196,13 +211,15 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
         )}
       </div>
 
-      <QcSaveBar
-        saving={entry.saving}
-        dirty={entry.dirty}
-        lastSavedAt={sampling.lastSavedAt}
-        localSavedAt={entry.localSavedAt}
-        onSave={handleSave}
-      />
+      {readOnly ? null : (
+        <QcSaveBar
+          saving={entry.saving}
+          dirty={entry.dirty}
+          lastSavedAt={sampling.lastSavedAt}
+          localSavedAt={entry.localSavedAt}
+          onSave={handleSave}
+        />
+      )}
 
       <SamplingExtractReviewModal
         open={extract.reviewOpen}

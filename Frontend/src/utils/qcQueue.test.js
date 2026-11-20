@@ -55,3 +55,16 @@ test('groupQcQueue reads status through a custom accessor', () => {
   assert.equal(group.status, 'done')
   assert.equal(group.doneCount, 2)
 })
+
+test('sailed groups carry the latest cast-off, read-only flag, and sort newest first', () => {
+  const groups = groupQcQueue([
+    row(1, 7, 'MT A', 'done', { castOffDateTime: '2026-11-01T00:00:00Z', readOnly: true }),
+    row(2, 7, 'MT A', 'draft', { castOffDateTime: '2026-11-03T00:00:00Z', readOnly: true }),
+    row(3, 8, 'MT B', 'done', { castOffDateTime: '2026-11-05T00:00:00Z', readOnly: true }),
+  ])
+  const a = groups.find((g) => g.vesselName === 'MT A')
+  assert.equal(a.castOffMs, new Date('2026-11-03T00:00:00Z').getTime())
+  assert.equal(a.readOnly, true)
+  assert.deepEqual(sortQcGroups(groups, 'castOff').map((g) => g.vesselName), ['MT B', 'MT A'])
+  assert.equal(filterQcGroups(groups, 'sailed', '').length, 2)
+})

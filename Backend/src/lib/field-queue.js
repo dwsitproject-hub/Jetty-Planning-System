@@ -1,8 +1,17 @@
 /**
- * Shared pieces for the field-menu queues (QC Sampling, Custom Clearance): the vessel header
- * every queue row carries, and one batched read of a sub-process across many operations.
+ * Shared pieces for the field-menu queues (QC Sampling, Custom Clearance): which operations a
+ * queue lists, the vessel header every row carries, one batched read of a sub-process across
+ * many operations, and the view-only lock on sailed vessels.
  */
 import { pool } from '../db.js';
+import { isBerthedQueueRow } from './berthed-queue.js';
+import {
+  SAILED_READ_ONLY_MESSAGE,
+  isSailedStatus,
+  parseSailedRange,
+  queueScopeOf,
+  sortByCastOffDesc,
+} from './field-queue-scope.js';
 
 /** Vessel / SI header fields shared by every field-menu queue row. */
 export function queueHeader(row) {
@@ -19,8 +28,68 @@ export function queueHeader(row) {
     commodityDisplay: row.commodityDisplay,
     commodityShortDisplay: row.commodityShortDisplay,
     tbDateTime: row.tbDateTime,
+    castOffDateTime: row.castOffDateTime ?? null,
     status: row.status,
+    readOnly: isSailedStatus(row.status),
   };
+}
+
+/**
+ * Overview rows for one queue request: berthed vessels, or (`?scope=sailed`) vessels cast off
+ * inside `?from=&to=` (default last 30 days), newest first.
+ * @param {{ loadOverview: (portId: number) => Promise<{ queue: object[] }>, loadSailed: Function }} deps
+ */
+export async function loadFieldQueueRows(selectedPortId, query, { loadOverview, loadSailed }) {
+  if (queueScopeOf(query) === 'sailed') {
+    return sortByCastOffDesc(await loadSailed(selectedPortId, parseSailedRange(query)));
+  }
+  const overview = await loadOverview(selectedPortId);
+  return (Array.isArray(overview?.queue) ? overview.queue : []).filter(isBerthedQueueRow);
+}
+
+/** Cast-off of a sailed operation (null when it has not sailed or does not exist). */
+async function loadSailedCastOff(operationId) {
+  const r = await pool.query(
+    `SELECT COALESCE(sp.cast_off_at, o.cast_off_at) AS cast_off_at
+     FROM operations o
+     JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
+     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL AND o.status = 'SAILED'`,
+    [operationId]
+  );
+  return r.rows[0]?.cast_off_at ?? null;
+}
+
+/**
+ * Overview row of one operation for an entry screen: berthed, or sailed (view-only).
+ * @returns {Promise<object|null>}
+ */
+export async function loadFieldQueueRow(selectedPortId, operationId, { loadOverview, loadSailed }) {
+  const overview = await loadOverview(selectedPortId);
+  const active = (overview?.queue || []).filter(isBerthedQueueRow).find((r) => r.operationId === operationId);
+  if (active) return active;
+  const castOff = await loadSailedCastOff(operationId);
+  if (!castOff) return null;
+  const at = new Date(castOff).getTime();
+  const rows = await loadSailed(selectedPortId, { from: new Date(at), to: new Date(at + 1) });
+  return rows.find((r) => r.operationId === operationId) ?? null;
+}
+
+/** `source` values the field menus send on shared sub-process writes. */
+const FIELD_MENU_SOURCES = new Set(['qc', 'custom-clearance']);
+
+/** Shared sub-process writes: lock only those sent by a field menu (body or query `source`). */
+export async function assertFieldMenuSourceEditable(operationId, req) {
+  const source = String(req.body?.source ?? req.query?.source ?? '').trim();
+  if (FIELD_MENU_SOURCES.has(source)) await assertFieldMenuEditable(operationId);
+}
+
+/** Refuse writes from a field menu once the vessel has sailed (the Loading hub stays editable). */
+export async function assertFieldMenuEditable(operationId) {
+  const r = await pool.query(`SELECT status FROM operations WHERE id = $1 AND deleted_at IS NULL`, [operationId]);
+  if (isSailedStatus(r.rows[0]?.status)) {
+    throw Object.assign(new Error(SAILED_READ_ONLY_MESSAGE), { statusCode: 403 });
+  }
 }
 
 /**

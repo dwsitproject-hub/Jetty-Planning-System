@@ -107,7 +107,9 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
         const detail =
           row.event_key === 'shipment_plan.submitted'
             ? `We emailed you about shipment plan ${strVars.planReference || ''}. Check your inbox.`.trim()
-            : row.event_key === 'operation.signoff_requested'
+            : row.event_key === 'shipment_plan.partner_submitted'
+              ? `We emailed you about partner submission ${strVars.planReference || ''} (${strVars.partnerName || 'partner'}). Check your inbox.`.trim()
+              : row.event_key === 'operation.signoff_requested'
               ? `We emailed you about clearance / sign-off for ${strVars.vesselName || 'a vessel'}. Check your inbox.`.trim()
               : row.event_key === 'operation.sla_etc_d1'
                 ? `We emailed you an SLA D-1 reminder for ${strVars.vesselName || 'a vessel'}. Check your inbox.`.trim()

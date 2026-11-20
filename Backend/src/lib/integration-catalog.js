@@ -78,7 +78,7 @@ function shippingInstructionResponseFields() {
     readOnly('status', 'STRING', {
       enumValues: PARTNER_STATUSES,
       description:
-        'Partner lifecycle on the 201 response, GET, and status.changed. After approval the stages are Allocated (jetty assigned), Berthed (schedule.tb set), Start Cargo (schedule.cargo_ops_start_at set), Cargo Done (schedule.cargo_done_at set), and Sailed Off (vessel cast off). A stage can move back if an operator clears the time that set it. Deleted means an operator removed the shipment plan. The same external_reference stays used (POST returns 409). Send the next revision as a new external_reference.',
+        'Partner lifecycle on the 201 response, GET, and status.changed. After approval the stages are Allocated (jetty assigned), Berthed (schedule.tb set), Hose On (Opening / cargo_ops_start_at), Start Cargo (cargo operations started), Cargo Done (cargo_done_at), Hose Off (Closing / cargo_ops_end_at), and Sailed Off (vessel cast off). A later stage wins. A stage can move back if an operator clears the time that set it. Deleted means an operator removed the shipment plan. The same external_reference stays used (POST returns 409). Send the next revision as a new external_reference.',
     }),
     readOnly('approval', 'OBJECT', {
       description:
@@ -97,7 +97,7 @@ function shippingInstructionResponseFields() {
     }),
     readOnly('schedule', 'OBJECT', {
       description:
-        'GET and webhook data. Timestamps are ISO 8601 UTC. cargo_ops_start_at and cargo_ops_end_at are Hose On and Hose Off. cast_off_at is vessel cast-off, not Hose Off.',
+        'GET and webhook data. Timestamps are ISO 8601 UTC. cargo_ops_start_at is Hose On (Opening). cargo_ops_end_at is Hose Off (Closing). cast_off_at is vessel cast-off, not Hose Off.',
       items: [
         readOnly('eta', 'DATETIME'),
         readOnly('ta', 'DATETIME', { description: 'Actual time of arrival.' }),
@@ -107,8 +107,8 @@ function shippingInstructionResponseFields() {
         readOnly('tc', 'DATETIME', { description: 'Time of completion.' }),
         readOnly('cast_off_at', 'DATETIME', { description: 'Vessel cast-off. Not Hose Off.' }),
         readOnly('sailed_at', 'DATETIME'),
-        readOnly('cargo_ops_start_at', 'DATETIME', { description: 'Hose On. Cargo Operations window start.' }),
-        readOnly('cargo_ops_end_at', 'DATETIME', { description: 'Hose Off. Cargo Operations window end.' }),
+        readOnly('cargo_ops_start_at', 'DATETIME', { description: 'Hose On. Earliest Opening start. Sets status Hose On until cargo operations start.' }),
+        readOnly('cargo_ops_end_at', 'DATETIME', { description: 'Hose Off. Closing time. Sets status Hose Off until the vessel sails.' }),
         readOnly('cargo_done_at', 'DATETIME', {
           description:
             'Cargo Done. Latest end among cargo operations, final inspection, and final sounding (same as the JPS management dashboard). Null while a cargo operations segment is still open.',
@@ -116,7 +116,7 @@ function shippingInstructionResponseFields() {
       ],
     }),
     readOnly('allocation', 'OBJECT', {
-      description: 'Null until status is Allocated (also set for Berthed, Start Cargo, Cargo Done, and Sailed Off). GET and webhook data.',
+      description: 'Null until status is Allocated (also set for Berthed, Hose On, Start Cargo, Cargo Done, Hose Off, and Sailed Off). GET and webhook data.',
       items: [
         readOnly('jetty_name', 'STRING'),
         readOnly('jetty_code', 'STRING', {

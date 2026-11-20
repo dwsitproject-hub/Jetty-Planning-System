@@ -1,8 +1,7 @@
 /**
- * Queue for the Custom Clearance menu: berthed operations plus the state of their
+ * Queue for the Custom Clearance menu: berthed (or sailed, view-only) operations plus the state of their
  * Post-Checking `custom_clearance` step (the same row the Loading hub edits).
  */
-import { isBerthedQueueRow } from './berthed-queue.js';
 import { loadSubProcessRows, queueHeader } from './field-queue.js';
 
 export const CUSTOM_CLEARANCE_STEP = Object.freeze({ phase: 'Post-Checking', key: 'custom_clearance' });
@@ -35,12 +34,9 @@ export function toClearanceSummary(row) {
 }
 
 /**
- * @param {number} selectedPortId
- * @param {(portId: number) => Promise<{ queue: object[] }>} loadOverview allocation overview loader
+ * @param {object[]} rows overview rows already chosen for the queue (berthed or sailed)
  */
-export async function buildCustomClearanceQueue(selectedPortId, loadOverview) {
-  const overview = await loadOverview(selectedPortId);
-  const rows = (Array.isArray(overview?.queue) ? overview.queue : []).filter(isBerthedQueueRow);
+export async function buildCustomClearanceQueue(rows) {
   const steps = await loadSubProcessRows(
     rows.map((r) => r.operationId),
     CUSTOM_CLEARANCE_STEP

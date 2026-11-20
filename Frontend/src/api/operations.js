@@ -323,14 +323,19 @@ export function fetchSubProcessDocuments(operationId, subProcessKey, phase = 'Pr
   )
 }
 
-export function deleteSubProcessDocument(operationId, subProcessKey, documentId, phase = 'Pre-Checking') {
-  const q = `?phase=${encodeURIComponent(phase)}`
+/** `source` tags writes from a field menu (QC Sampling, Custom Clearance) so the API can lock sailed vessels. */
+function sourceQuery(source) {
+  return source ? `&source=${encodeURIComponent(source)}` : ''
+}
+
+export function deleteSubProcessDocument(operationId, subProcessKey, documentId, phase = 'Pre-Checking', { source } = {}) {
+  const q = `?phase=${encodeURIComponent(phase)}${sourceQuery(source)}`
   return apiDelete(
     `/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}/documents/${encodeURIComponent(String(documentId))}${q}`
   )
 }
 
-export async function uploadSubProcessDocuments(operationId, subProcessKey, phase, files, commodityId = null) {
+export async function uploadSubProcessDocuments(operationId, subProcessKey, phase, files, commodityId = null, { source } = {}) {
   const form = new FormData()
   const phaseValue = phase || 'Pre-Checking'
   form.append('phase', phaseValue)
@@ -339,7 +344,7 @@ export async function uploadSubProcessDocuments(operationId, subProcessKey, phas
     form.append('files', f)
   }
   return apiPostForm(
-    `/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}/documents?phase=${encodeURIComponent(phaseValue)}`,
+    `/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}/documents?phase=${encodeURIComponent(phaseValue)}${sourceQuery(source)}`,
     form,
     60000
   )

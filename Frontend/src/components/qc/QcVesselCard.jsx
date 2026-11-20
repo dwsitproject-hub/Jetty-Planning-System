@@ -7,6 +7,16 @@ export function siLabel(row) {
   return row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`
 }
 
+/** Cast-off time of a sailed (view-only) vessel call, on the TB line; nothing for berthed vessels. */
+export function SailedMeta({ group, t }) {
+  if (!group.readOnly || group.castOffMs == null) return null
+  return (
+    <span>
+      {t('queue.castOffPrefix')} {formatDateTimeDisplay(new Date(group.castOffMs).toISOString())}
+    </span>
+  )
+}
+
 export function purposeNode(purposes) {
   if (purposes.length === 0) return '—'
   return purposes.map((p) => <PurposeBadge key={p} purpose={p} abbrev={purposes.length > 1} />)
@@ -51,6 +61,7 @@ export default function QcVesselCard({ group, expanded, onToggle, onOpen, ns, st
               {t('queue.tbPrefix')} {tb}
             </span>
           ) : null}
+          <SailedMeta group={group} t={t} />
         </div>
         {multi ? (
           <>

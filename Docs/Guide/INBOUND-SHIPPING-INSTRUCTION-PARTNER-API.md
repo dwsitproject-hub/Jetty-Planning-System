@@ -31,7 +31,7 @@
 1. Your system **lists** JPS reference data (`GET /terms`, `/agents`, `/surveyors`, `/shippers`) and **registers** agents/shippers via `POST`/`PATCH` when needed.
 2. Your system **submits** a Shipping Instruction via `POST`, identifying the vessel by **`vessel_hub_code`** (preferred) or unique **`vessel_name`**. JPS maps this to master vessel data and snapshots name/LOA/GT/draft on the plan. Optionally include `po_no`, `so_no`, `sto_no`, `shipper_name`, `trade_term`, `surveyor_name`.
 3. If PO/SO are not ready at submit time, your system **PATCH**es the instruction while status is **`Pending`**.
-4. JPS creates a real **Shipment Plan** + **Shipping Instruction** with partner status **`Pending`**.
+4. JPS creates a real **Shipment Plan** + **Shipping Instruction** with partner status **`Pending`**. JPS may send **in-app and email** notifications for event **`shipment_plan.partner_submitted`** (configured in **Admin → Notification Settings → Partner Shipment Plan Received**, with per-port recipients).
 5. A JPS operator **reviews** in the web app and **Approves**, **Rejects**, or **Deletes** the plan.
 6. Once approved, an operator **allocates** a jetty/berth → status becomes **`Allocated`**.
 7. Operators log **milestones** (TA, ETB, TB, ETC, TC, cast off, sailed) in JPS. Status follows them: **`Berthed`** when TB is set, **`Start Cargo`** when the cargo operation window starts, **`Cargo Done`** when cargo and final checks finish.
@@ -423,8 +423,8 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
 | `tb` | Time of Berthing (actual) (partner **ATB**) | Operator berthing log |
 | `etc` | Estimated Time of Completion | Operator SLA / ETC |
 | `tc` | Operations completed (sign-off) | Sign-off approval |
-| `cargo_ops_start_at` | Hose On (partner **ATS**) | **Cargo Operations → Operation Window → Start** (`operation_operational_activities.start_at`, `milestone_key = cargo_operations`; earliest across activities on the call). |
-| `cargo_ops_end_at` | Hose Off (partner **ATC**) | **Cargo Operations → Operation Window → End** (`operation_operational_activities.end_at`, same activity; latest across activities on the call). |
+| `cargo_ops_start_at` | Hose On (partner **ATS**) | Earliest **Opening** start (`operation_operational_activities.start_at`, `milestone_key = opening_hatch`). Sets status **Hose On** until cargo operations start. |
+| `cargo_ops_end_at` | Hose Off (partner **ATC**) | **Closing** time (`operation_sub_processes.occurred_at`, `sub_process_key = closing`). Sets status **Hose Off** until the vessel sails. |
 | `cargo_done_at` | Cargo Done (v5.7) | Latest end among Cargo Operations activities, final inspection, and final sounding (the same instant the JPS management dashboard uses). Null while any Cargo Operations segment is still open, and until a final check or cargo end is recorded. |
 | `cast_off_at` | Vessel cast off | Clearance / depart — **not** KLIP Hose Off |
 | `sailed_at` | Sailed | Depart (status `Sailed Off`) |
@@ -439,7 +439,7 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
 | ATC (Hose Off) | `cargo_ops_end_at` |
 | Vessel sailed | `cast_off_at`, `sailed_at`, and top-level `status` **`Sailed Off`** |
 
-- `allocation` is `null` until status is `Allocated`. It stays present for `Berthed`, `Start Cargo`, `Cargo Done`, and `Sailed Off`.
+- `allocation` is `null` until status is `Allocated`. It stays present for `Berthed`, `Hose On`, `Start Cargo`, `Cargo Done`, `Hose Off`, and `Sailed Off`.
 - `rejection_reason` is set only when status is `Rejected`.
 - `etr_minutes` is derived from `etc` minus now (read-only hint; not stored in JPS).
 
@@ -651,7 +651,7 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
       { "key": "trade_term", "type": "STRING", "required": false, "patchable": true, "enumValues": ["FOB", "CIF", "CFR", "..."] },
       { "key": "shipping_instruction_document_url", "type": "URL", "required": false, "patchable": true, "maxLength": 2048 },
       { "key": "cargo", "type": "ARRAY", "required": true, "patchable": true, "items": [ { "key": "cargo_hub_code", "type": "STRING", "required": true, "enumValues": ["CMD-0006", "CMD-0010", "..."] } ] },
-      { "key": "status", "type": "STRING", "required": false, "patchable": false, "systemGenerated": true, "enumValues": ["Pending", "Approved", "Rejected", "Deleted", "Allocated", "Berthed", "Start Cargo", "Cargo Done", "Sailed Off"] },
+      { "key": "status", "type": "STRING", "required": false, "patchable": false, "systemGenerated": true, "enumValues": ["Pending", "Approved", "Rejected", "Deleted", "Allocated", "Berthed", "Hose On", "Start Cargo", "Cargo Done", "Hose Off", "Sailed Off"] },
       { "key": "approval", "type": "OBJECT", "systemGenerated": true, "items": [ { "key": "status", "type": "STRING", "enumValues": ["Submitted", "Approved", "Rejected", "Deleted"] } ] },
       { "key": "schedule", "type": "OBJECT", "systemGenerated": true, "items": [ { "key": "cargo_ops_start_at", "type": "DATETIME" }, { "key": "cargo_ops_end_at", "type": "DATETIME" }, { "key": "cast_off_at", "type": "DATETIME" } ] },
       { "key": "legacyFieldsRejected", "type": "ARRAY", "description": "POST fields that return 400 in v5.3 — e.g. cargo_type → use cargo_hub_code" }
@@ -745,9 +745,11 @@ At least one field required. Allowed while status is **`Pending`** only.
 | `Rejected` | Operator declined. See `rejection_reason`. | Fix data; submit **new** instruction with **new** `external_reference`. |
 | `Deleted` | Operator deleted the shipment plan. `GET` by id or `external_reference` still returns this status, and delete sends `status.changed`. The same `external_reference` stays used. | Submit a **new** instruction whose `external_reference` includes the next revision (`R2`, `R3`, …). |
 | `Allocated` | Jetty/berth assigned. See `allocation`. TB is not set yet. | Watch `status.changed` for `Berthed`. |
-| `Berthed` | TB (`schedule.tb`) is set. | Watch `status.changed` for `Start Cargo`. |
-| `Start Cargo` | Cargo operation window started (`schedule.cargo_ops_start_at` set; Hose On). | Watch `status.changed` for `Cargo Done`. |
-| `Cargo Done` | Cargo operations and final checks finished (`schedule.cargo_done_at` set). Later than Hose Off (`cargo_ops_end_at`) when final checks follow the hoses. | Watch `status.changed` for `Sailed Off`. |
+| `Berthed` | TB (`schedule.tb`) is set. | Watch `status.changed` for `Hose On`. |
+| `Hose On` | Opening is saved (`schedule.cargo_ops_start_at` set). Cargo operations have not started. | Watch `status.changed` for `Start Cargo`. |
+| `Start Cargo` | Cargo operations have started (earliest Cargo Operations start). | Watch `status.changed` for `Cargo Done`. |
+| `Cargo Done` | Cargo operations and final checks finished (`schedule.cargo_done_at` set). Closing may still be empty. | Watch `status.changed` for `Hose Off`. |
+| `Hose Off` | Closing is saved (`schedule.cargo_ops_end_at` set). | Watch `status.changed` for `Sailed Off`. |
 | `Sailed Off` | Vessel cast off and departed. See `schedule.cast_off_at`, `schedule.sailed_at`. | Terminal state for voyage tracking. |
 
 A stage is derived from the times above, so it can move back if an operator clears the time that set it (for example TB). `schedule.updated` continues to carry every schedule change; `status.changed` is sent once per status change.
@@ -801,7 +803,7 @@ Always log `request_id` when reporting issues to JPS support.
 
 ### 5.1 Commodity hub codes (`cargo_hub_code`)
 
-Each cargo line must include **`cargo_hub_code`** — the DHM/JPS hub code on `si_commodities.hub_code` (e.g. `CMD-0006` for CPO on staging). **Do not send `cargo_type`** on POST in v5.3; that field is rejected even if the value looks like a hub code or short name.
+Each cargo line must include **`cargo_hub_code`** — the DHM/JPS hub code on `si_commodities.hub_code` (e.g. `CMD-0006` for CPO on staging). POST accepts any hub code that exists and is not deleted, including commodities that are inactive in JPS. The catalog lists commodities that are active in JPS. **Do not send `cargo_type`** on POST in v5.3; that field is rejected even if the value looks like a hub code or short name.
 
 **Authoritative list for your environment:**
 
@@ -1047,8 +1049,8 @@ API tests alone stop at `Pending`. To see `Approved` / `Allocated`:
 | 6 | JPS operator | **Allocation** → assign jetty |
 | 7 | You | `GET` → expect `"status": "Allocated"` with `allocation.jetty_name` |
 | 8 | JPS operator | Confirm berthing (TB) → `GET` expects `"Berthed"` |
-| 9 | JPS operator | Save the Cargo Operations window start → `GET` expects `"Start Cargo"` and `schedule.cargo_ops_start_at` |
-| 10 | JPS operator | End the cargo window and record final inspection / final sounding → `GET` expects `"Cargo Done"` and `schedule.cargo_done_at` |
+| 9 | JPS operator | Save Opening → `GET` expects `"Hose On"` and `schedule.cargo_ops_start_at`. Start cargo operations → `"Start Cargo"`. Save Closing → `"Hose Off"` and `schedule.cargo_ops_end_at` |
+| 10 | JPS operator | Record final inspection / final sounding → `GET` expects `"Cargo Done"` and `schedule.cargo_done_at`. Save Closing → `schedule.cargo_ops_end_at` (Hose Off) |
 | 11 | JPS operator | Record depart → `GET` expects `"Sailed Off"` |
 
 Coordinate with the JPS team for operator steps, or request a test login if you need to observe the UI yourself.

@@ -2,17 +2,20 @@
  * QC Sampling endpoints (mobile menu for Quality Control).
  *
  * Base path: /api/v1/qc
- * - GET    /sampling/queue                                berthed operations with sampling state
- * - GET    /sampling/operations/:operationId              one queue row (entry screen header)
+ * - GET    /sampling/queue                                berthed operations with sampling state;
+ *                                                        `?scope=sailed&from=&to=` lists sailed ones (view-only)
+ * - GET    /sampling/operations/:operationId              one queue row (entry screen header), berthed or sailed
  * - POST   /sampling/operations/:operationId/records      add one palka sample
  * - PATCH  /sampling/operations/:operationId/records/:id  edit one palka sample
  * - DELETE /sampling/operations/:operationId/records/:id  remove one palka sample
  *
- * Record writes are row-locked read-modify-write, so they never overwrite another editor's samples.
+ * Record writes are row-locked read-modify-write, so they never overwrite another editor's samples,
+ * and are refused once the vessel has sailed.
  */
 import express from 'express';
-import { buildAllocationOverviewPayload } from './allocation.js';
+import { buildAllocationOverviewPayload, loadSailedOverviewRows } from './allocation.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { assertFieldMenuEditable, loadFieldQueueRow, loadFieldQueueRows } from '../lib/field-queue.js';
 import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { buildQcSamplingQueue } from '../lib/qc-sampling-queue.js';
 import { fallbackSpec, sampleCodes } from '../lib/qc-spec.js';
@@ -33,6 +36,7 @@ import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 const router = express.Router();
 
 const PAGE_KEY = 'quality-control';
+const QUEUE_SOURCES = { loadOverview: buildAllocationOverviewPayload, loadSailed: loadSailedOverviewRows };
 
 function parseOperationId(raw) {
   const id = parseInt(raw, 10);
@@ -40,17 +44,17 @@ function parseOperationId(raw) {
 }
 
 router.get('/sampling/queue', ...requirePageView(PAGE_KEY), async (req, res) => {
-  const queue = await buildQcSamplingQueue(Number(req.selectedPortId), buildAllocationOverviewPayload);
-  res.json({ queue });
+  const rows = await loadFieldQueueRows(Number(req.selectedPortId), req.query, QUEUE_SOURCES);
+  res.json({ queue: await buildQcSamplingQueue(rows) });
 });
 
 router.get('/sampling/operations/:operationId', ...requirePageView(PAGE_KEY), async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  const queue = await buildQcSamplingQueue(Number(req.selectedPortId), buildAllocationOverviewPayload);
-  const row = queue.find((r) => r.operationId === operationId);
+  const row = await loadFieldQueueRow(Number(req.selectedPortId), operationId, QUEUE_SOURCES);
   if (!row) return res.status(404).json({ error: 'Operation not found or not berthed' });
-  res.json(row);
+  const [queueRow] = await buildQcSamplingQueue([row]);
+  res.json(queueRow);
 });
 
 /** Run one record mutation, log it against the Loading page (shared record) and reply with the fresh list. */
@@ -58,6 +62,7 @@ async function applyRecordChange(req, res, { action, summary, mutate }) {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
   await assertOperationInSelectedPort(operationId, req.selectedPortId);
+  await assertFieldMenuEditable(operationId);
 
   const commodityId = req.body?.commodityId ?? req.query?.commodityId ?? null;
   const result = await mutateSamplingRecords(operationId, req.userId ?? null, mutate, { commodityId });

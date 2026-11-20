@@ -3,6 +3,7 @@
  */
 export const WORKFLOW_NOTIFICATION_EVENTS = [
   'shipment_plan.submitted',
+  'shipment_plan.partner_submitted',
   'operation.signoff_requested',
 ];
 
@@ -17,6 +18,11 @@ export const ADMIN_CONFIGURABLE_NOTIFICATION_EVENTS = [
 export const NOTIFICATION_EVENT_CONFIG = {
   'shipment_plan.submitted': {
     approvePageKey: 'shipment-plan',
+    adminConfigured: true,
+    recipientEmptyFallback: 'none',
+  },
+  'shipment_plan.partner_submitted': {
+    approvePageKey: null,
     adminConfigured: true,
     recipientEmptyFallback: 'none',
   },
@@ -41,6 +47,7 @@ export const NOTIFICATION_EVENT_CONFIG = {
 
 export const EVENT_LABELS = {
   'shipment_plan.submitted': 'Shipment Plan Approval',
+  'shipment_plan.partner_submitted': 'Partner Shipment Plan Received',
   'operation.signoff_requested': 'Clearance Sign Off Request',
   'operation.sla_etc_d1': 'SLA D-1 Reminder',
   'operation.sla_etc_breach': 'SLA Breach Alert',

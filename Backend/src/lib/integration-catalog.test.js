@@ -81,8 +81,10 @@ describe('integration-catalog', () => {
       'Deleted',
       'Allocated',
       'Berthed',
+      'Hose On',
       'Start Cargo',
       'Cargo Done',
+      'Hose Off',
       'Sailed Off',
     ]);
     const approval = si.fields.find((f) => f.key === 'approval');

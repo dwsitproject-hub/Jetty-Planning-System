@@ -37,7 +37,22 @@
     "started": "Started {{start}}",
     "documents": "{{count}} document(s)",
     "updatedBy": "Updated {{when}} by {{who}}",
-    "updatedAt": "Updated {{when}}"
+    "updatedAt": "Updated {{when}}",
+    "filterSailed": "Sailed",
+    "sortCastOff": "Latest sailed",
+    "sailedRange": "Cast-off date range",
+    "sailedRangeError": {
+      "required": "Pick both dates.",
+      "order": "The start date must be on or before the end date.",
+      "tooLong": "Pick a range of one year or less."
+    },
+    "noSailed": "No vessels sailed in this date range.",
+    "castOffPrefix": "CO",
+    "scopeLabel": "Show vessels",
+    "scopeActive": "At berth",
+    "castOffLabel": "Cast off",
+    "sailedFrom": "Cast off from",
+    "sailedTo": "Cast off to"
   },
   "workspace": {
     "selectTitle": "Select a vessel to record custom clearance",
@@ -53,7 +68,9 @@
     "startTime": "Custom Clearance Start Time",
     "endTime": "Custom Clearance End Time",
     "remark": "Remark",
-    "sectionDocuments": "Clearance documents"
+    "sectionDocuments": "Clearance documents",
+    "readOnlyTitle": "Sailed — view only",
+    "readOnlyText": "This vessel has sailed. You can view the custom clearance and open documents, but not change them."
   },
   "documents": {
     "takePhoto": "Take photo",

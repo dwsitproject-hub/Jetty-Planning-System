@@ -149,22 +149,29 @@ export async function updateNamedMaster(db, table, id, { name, longName }) {
   return { row: toNamedResponse(r.rows[0]) };
 }
 
-/** Cargo Operations operation window on latest op lateral `o` (KLIP Hose On / Hose Off). */
+/** Hose On / Hose Off on latest op lateral `o`. Opening start, Closing time. */
 export const PARTNER_CARGO_OPS_WINDOW_SUBSELECT = `
          (SELECT MIN(oa.start_at)
           FROM operation_operational_activities oa
           WHERE oa.operation_id = o.op_id
             AND oa.deleted_at IS NULL
             AND oa.entry_type = 'activity'
-            AND oa.milestone_key = 'cargo_operations'
+            AND oa.milestone_key = 'opening_hatch'
             AND oa.start_at IS NOT NULL) AS op_cargo_ops_window_start_at,
-         (SELECT MAX(oa.end_at)
+         (SELECT MIN(oa.start_at)
           FROM operation_operational_activities oa
           WHERE oa.operation_id = o.op_id
             AND oa.deleted_at IS NULL
             AND oa.entry_type = 'activity'
             AND oa.milestone_key = 'cargo_operations'
-            AND oa.end_at IS NOT NULL) AS op_cargo_ops_window_end_at`;
+            AND oa.start_at IS NOT NULL) AS op_cargo_activity_start_at,
+         (SELECT COALESCE(sp.occurred_at, sp.start_at)
+          FROM operation_sub_processes sp
+          WHERE sp.operation_id = o.op_id
+            AND sp.deleted_at IS NULL
+            AND sp.phase = 'Post-Checking'
+            AND sp.sub_process_key = 'closing'
+          LIMIT 1) AS op_cargo_ops_window_end_at`;
 
 /** Sub-process keys that finish cargo work (same set as managementDashboardCargoDone.js). */
 const PARTNER_FINAL_CHECK_KEYS = `'final_inspection', 'final_tank_inspection', 'final_hold_inspection', 'final_sounding'`;
@@ -209,24 +216,32 @@ const PARTNER_CARGO_OPS_WINDOW_BY_OPERATION_SQL = `
      WHERE oa.operation_id = $1
        AND oa.deleted_at IS NULL
        AND oa.entry_type = 'activity'
-       AND oa.milestone_key = 'cargo_operations'
+       AND oa.milestone_key = 'opening_hatch'
        AND oa.start_at IS NOT NULL) AS window_start_at,
-    (SELECT MAX(oa.end_at)
+    (SELECT MIN(oa.start_at)
      FROM operation_operational_activities oa
      WHERE oa.operation_id = $1
        AND oa.deleted_at IS NULL
        AND oa.entry_type = 'activity'
        AND oa.milestone_key = 'cargo_operations'
-       AND oa.end_at IS NOT NULL) AS window_end_at,
+       AND oa.start_at IS NOT NULL) AS cargo_start_at,
+    (SELECT COALESCE(sp.occurred_at, sp.start_at)
+     FROM operation_sub_processes sp
+     WHERE sp.operation_id = $1
+       AND sp.deleted_at IS NULL
+       AND sp.phase = 'Post-Checking'
+       AND sp.sub_process_key = 'closing'
+     LIMIT 1) AS window_end_at,
     ${PARTNER_CARGO_DONE_SUBSELECT}
   FROM (SELECT $1::bigint AS op_id) o`;
 
-/** Partner Hose On/Off window and Cargo Done instant for an operation. */
+/** Partner Hose On (Opening), Hose Off (Closing), and Cargo Done instant for an operation. */
 export async function resolvePartnerCargoOpsWindow(db, operationId) {
   const r = await db.query(PARTNER_CARGO_OPS_WINDOW_BY_OPERATION_SQL, [operationId]);
   const row = r.rows[0] ?? {};
   return {
     startAt: row.window_start_at ?? null,
+    cargoStartAt: row.cargo_start_at ?? null,
     endAt: row.window_end_at ?? null,
     doneAt: row.op_cargo_done_at ?? null,
   };
@@ -245,15 +260,18 @@ export const PARTNER_STATUSES = [
   'Deleted',
   'Allocated',
   'Berthed',
+  'Hose On',
   'Start Cargo',
   'Cargo Done',
+  'Hose Off',
   'Sailed Off',
 ];
 
 /**
  * Maps plan and operation timestamps to a partner status.
- * Berthed = TB, Start Cargo = cargo window start, Cargo Done = same instant as the management dashboard,
- * Sailed Off = operation SAILED. `operations.status` is not used for the middle stages because
+ * Berthed = TB, Hose On = Opening, Start Cargo = earliest cargo_operations start,
+ * Cargo Done = management dashboard instant, Hose Off = Closing, Sailed Off = operation SAILED.
+ * A later stage wins. `operations.status` is not used for the middle stages because
  * IN_PROGRESS and POST_OPS are set by any activity or first final check.
  */
 export function deriveExternalStatus(row) {
@@ -262,8 +280,10 @@ export function deriveExternalStatus(row) {
   const opStatus = row.op_status || null;
   if (opStatus === 'SAILED') return 'Sailed Off';
   if (opStatus && opStatus !== 'PENDING') {
+    if (row.op_cargo_ops_window_end_at) return 'Hose Off';
     if (row.op_cargo_done_at) return 'Cargo Done';
-    if (row.op_cargo_ops_window_start_at) return 'Start Cargo';
+    if (row.op_cargo_activity_start_at) return 'Start Cargo';
+    if (row.op_cargo_ops_window_start_at) return 'Hose On';
     if (row.sp_tb || row.sp_docking_start_time || row.op_tb || row.op_docking_start_time) return 'Berthed';
     return 'Allocated';
   }

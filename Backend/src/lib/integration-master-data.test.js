@@ -45,7 +45,7 @@ describe('integration-master-data', () => {
         'Berthed'
       );
     });
-    it('returns Start Cargo once the cargo window has started, even before cargo ops status moves', () => {
+    it('returns Hose On once Opening is recorded, before cargo operations start', () => {
       assert.equal(
         deriveExternalStatus({
           ...approved,
@@ -53,7 +53,33 @@ describe('integration-master-data', () => {
           op_tb: TB,
           op_cargo_ops_window_start_at: START,
         }),
+        'Hose On'
+      );
+    });
+    it('returns Start Cargo once cargo operations have started', () => {
+      assert.equal(
+        deriveExternalStatus({
+          ...approved,
+          op_status: 'IN_PROGRESS',
+          op_tb: TB,
+          op_cargo_ops_window_start_at: START,
+          op_cargo_activity_start_at: '2026-09-28T08:00:00.000Z',
+        }),
         'Start Cargo'
+      );
+    });
+    it('returns Hose Off once Closing is recorded, after Cargo Done', () => {
+      assert.equal(
+        deriveExternalStatus({
+          ...approved,
+          op_status: 'POST_OPS',
+          op_tb: TB,
+          op_cargo_ops_window_start_at: START,
+          op_cargo_activity_start_at: '2026-09-28T08:00:00.000Z',
+          op_cargo_done_at: DONE,
+          op_cargo_ops_window_end_at: '2026-09-28T21:00:00.000Z',
+        }),
+        'Hose Off'
       );
     });
     it('does not treat IN_PROGRESS alone as Start Cargo (any activity sets it)', () => {
@@ -70,7 +96,7 @@ describe('integration-master-data', () => {
           op_tb: TB,
           op_cargo_ops_window_start_at: START,
         }),
-        'Start Cargo'
+        'Hose On'
       );
     });
     it('returns Cargo Done when cargo_done_at is set, also during sign-off', () => {
@@ -85,7 +111,7 @@ describe('integration-master-data', () => {
     });
     it('moves back a stage when the time that set it is cleared', () => {
       const row = { ...approved, op_status: 'IN_PROGRESS', op_tb: TB, op_cargo_ops_window_start_at: START };
-      assert.equal(deriveExternalStatus(row), 'Start Cargo');
+      assert.equal(deriveExternalStatus(row), 'Hose On');
       assert.equal(deriveExternalStatus({ ...row, op_cargo_ops_window_start_at: null }), 'Berthed');
       assert.equal(deriveExternalStatus({ ...row, op_cargo_ops_window_start_at: null, op_tb: null }), 'Allocated');
     });
@@ -109,8 +135,10 @@ describe('integration-master-data', () => {
         'Deleted',
         'Allocated',
         'Berthed',
+        'Hose On',
         'Start Cargo',
         'Cargo Done',
+        'Hose Off',
         'Sailed Off',
       ]);
     });
@@ -145,10 +173,13 @@ describe('integration-master-data', () => {
     });
   });
 
-  it('PARTNER_SUBMISSION_LOOKUP_SQL uses cargo_operations window subselects', () => {
-    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /milestone_key = 'cargo_operations'/);
+  it('PARTNER_SUBMISSION_LOOKUP_SQL uses Opening for Hose On and Closing for Hose Off', () => {
+    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /milestone_key = 'opening_hatch'/);
+    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /sub_process_key = 'closing'/);
     assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_ops_window_start_at/);
     assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_ops_window_end_at/);
+    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_activity_start_at/);
+    assert.match(PARTNER_CARGO_DONE_SUBSELECT, /milestone_key = 'cargo_operations'/);
   });
 
   it('resolvePartnerCargoOpsWindow queries by operation id', async () => {

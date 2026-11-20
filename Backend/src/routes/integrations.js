@@ -420,7 +420,7 @@ router.post('/shipping-instructions', async (req, res) => {
   const commodityByShortName = cargoResolved.commodityByShortName;
   const commodityTypeSet = new Set();
   for (const c of value.cargo) {
-    const commodityRow = commodityByShortName.get(normalizeCargoShortName(c.cargoType));
+    const commodityRow = c.commodity;
     if (!commodityRow) {
       return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
         {
@@ -625,7 +625,7 @@ router.post('/shipping-instructions', async (req, res) => {
 
     let lineOrder = 0;
     for (const line of value.cargo) {
-      const commodity = commodityByShortName.get(normalizeCargoShortName(line.cargoType));
+      const commodity = line.commodity;
       await client.query(
         `INSERT INTO public.shipping_instruction_breakdown (
            shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no, sto_no,
@@ -699,14 +699,19 @@ router.post('/shipping-instructions', async (req, res) => {
   }).catch(() => {});
 
   const appBase = getPublicAppBaseUrl();
+  const resolvedPortDisplayName = portRow?.name ? String(portRow.name) : '';
   triggerNotificationDeferred(pool, {
-    eventKey: 'shipment_plan.submitted',
-    correlationId: `shipment_plan.submitted:${planId}`,
+    eventKey: 'shipment_plan.partner_submitted',
+    correlationId: `shipment_plan.partner_submitted:${planId}`,
     portId: value.portId,
     excludeUserId: null,
     payloadVars: {
       planReference: planRef,
       planId: String(planId),
+      partnerName: key.partnerName,
+      externalReference: value.externalReference,
+      vesselName: resolvedVesselName,
+      portName: resolvedPortDisplayName,
       primaryHref: `${appBase}/shipment-plans/approval/${planId}`,
       actionUrl: `${appBase}/shipment-plans/approval/${planId}`,
     },

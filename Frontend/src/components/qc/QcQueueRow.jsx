@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
 import QcStatusChip from './QcStatusChip'
-import { purposeNode, siLabel } from './QcVesselCard'
+import { SailedMeta, purposeNode, siLabel } from './QcVesselCard'
 
 /**
  * Compact, selectable queue entry for the desktop pane. Multi-SI vessels expand into SI rows.
@@ -40,6 +40,7 @@ export default function QcQueueRow({ group, expanded, onToggle, selectedOperatio
               {t('queue.tbPrefix')} {tb}
             </span>
           ) : null}
+          <SailedMeta group={group} t={t} />
         </span>
         {multi ? (
           <span className="qc-row__meta">{t('queue.doneOf', { done: group.doneCount, total: group.siCount })}</span>

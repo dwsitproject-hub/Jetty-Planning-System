@@ -18,6 +18,10 @@ describe('sla-email-templates', () => {
     assert.equal(assertEditableSlaEmailEvent(SLA_EVENT_D1), SLA_EVENT_D1);
     assert.equal(assertEditableSlaEmailEvent(SLA_EVENT_BREACH), SLA_EVENT_BREACH);
     assert.equal(assertEditableSlaEmailEvent('shipment_plan.submitted'), 'shipment_plan.submitted');
+    assert.equal(
+      assertEditableSlaEmailEvent('shipment_plan.partner_submitted'),
+      'shipment_plan.partner_submitted'
+    );
     assert.throws(() => assertEditableSlaEmailEvent('notification.email_echo'), (err) => err.status === 404);
   });
 

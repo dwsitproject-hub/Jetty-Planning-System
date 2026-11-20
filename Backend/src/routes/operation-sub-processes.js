@@ -20,7 +20,7 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { assertNotStale } from '../lib/optimistic-lock.js';
 import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
-import { triggerPartnerScheduleIfCargoDoneChanged } from '../lib/integration-webhooks.js';
+import { triggerPartnerScheduleIfPartnerTimesChanged } from '../lib/integration-webhooks.js';
 import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { runSamplingDocumentExtract } from '../lib/sampling-document-extract.js';
@@ -36,6 +36,7 @@ import {
   saveSamplingCommodities,
 } from '../lib/sampling-commodity-qc.js';
 import { getSiCommodityOptionsForOperation } from '../lib/si-commodity-options.js';
+import { assertFieldMenuSourceEditable } from '../lib/field-queue.js';
 
 /** Final checks: promote to POST_OPS and move the partner Cargo Done stage. */
 const POST_CHECK_AUTO_KEYS = new Set([
@@ -202,7 +203,10 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}, ac
   const pcStart = startAt === undefined ? null : startAt;
   const pcEnd = endAt === undefined ? null : endAt;
 
-  const cargoDoneBefore = POST_CHECK_AUTO_KEYS.has(key) ? await resolvePartnerCargoOpsWindow(pool, operationId) : null;
+  const partnerTimesBefore =
+    POST_CHECK_AUTO_KEYS.has(key) || key === 'closing'
+      ? await resolvePartnerCargoOpsWindow(pool, operationId)
+      : null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -343,7 +347,7 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}, ac
       });
     }
     await client.query('COMMIT');
-    if (cargoDoneBefore) triggerPartnerScheduleIfCargoDoneChanged(operationId, cargoDoneBefore).catch(() => {});
+    if (partnerTimesBefore) triggerPartnerScheduleIfPartnerTimesChanged(operationId, partnerTimesBefore).catch(() => {});
     return id;
   } catch (e) {
     await client.query('ROLLBACK');
@@ -445,6 +449,7 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
   }
 
   await assertOperationAccess(operationId, req);
+  await assertFieldMenuSourceEditable(operationId, req);
 
   if (phase === 'Pre-Checking' && key === 'inspection') {
     const ctx = await loadOperationPrecheckContext(operationId);
@@ -568,7 +573,10 @@ router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (re
   const row = await loadSubProcess(operationId, phase, key);
   if (!row) return res.status(404).json({ error: 'Sub-process not found' });
 
-  const cargoDoneBefore = POST_CHECK_AUTO_KEYS.has(key) ? await resolvePartnerCargoOpsWindow(pool, operationId) : null;
+  const partnerTimesBefore =
+    POST_CHECK_AUTO_KEYS.has(key) || key === 'closing'
+      ? await resolvePartnerCargoOpsWindow(pool, operationId)
+      : null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -591,7 +599,7 @@ router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (re
     client.release();
   }
 
-  if (cargoDoneBefore) triggerPartnerScheduleIfCargoDoneChanged(operationId, cargoDoneBefore).catch(() => {});
+  if (partnerTimesBefore) triggerPartnerScheduleIfPartnerTimesChanged(operationId, partnerTimesBefore).catch(() => {});
   writeActivityLog({
     pageKey: 'loading',
     action: 'delete',
@@ -644,6 +652,7 @@ router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', u
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
   await assertOperationAccess(operationId, req);
+  await assertFieldMenuSourceEditable(operationId, req);
   const phase = cleanPhase(req.body?.phase || req.query.phase || 'Pre-Checking');
   if (!phase) return res.status(400).json({ error: 'Invalid phase' });
   const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
@@ -786,6 +795,7 @@ router.delete(
       return res.status(400).json({ error: 'Invalid operation or document id' });
     }
     await assertOperationAccess(operationId, req);
+    await assertFieldMenuSourceEditable(operationId, req);
     const phase = cleanPhase(req.query.phase || 'Pre-Checking');
     if (!phase) return res.status(400).json({ error: 'Invalid phase' });
     const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);

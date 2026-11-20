@@ -62,7 +62,8 @@ export function useQcSamplingEntry(operationId) {
           (visit.documents || []).length > 0
         return { commodities, documents: moved ? [] : visit.documents }
       }
-      if (local && local.savedAt > serverMs) {
+      // A sailed vessel is view only: never show edits kept on this device as if they were saved.
+      if (local && !header.readOnly && local.savedAt > serverMs) {
         const visit = { ...server, ...local.sampling, documents: server.documents }
         const localCards = seedCommodityCards(local.sampling?.commodities, products)
         const localHasFigures = localCards.some(
