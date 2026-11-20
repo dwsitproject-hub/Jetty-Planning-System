@@ -528,7 +528,7 @@
 /* Phase tabs — same pattern as offloading-stages */
 .operator-phase-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: var(--spacing-2);
   padding: var(--spacing-3) var(--spacing-4);
   background: var(--color-bg-white);
@@ -554,21 +554,6 @@
 .operator-phase-tabs__btn:hover {
   background: var(--color-bg-white);
   border-color: var(--color-border-dark);
-}
-
-.operator-phase-tabs__badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: #ef9f27;
-  color: #412402;
-  font-size: 0.72rem;
-  font-weight: 700;
 }
 
 .operator-phase-tabs__btn.is-active {
@@ -1254,63 +1239,4 @@
     min-width: 0;
     flex: 1;
   }
-}
-
-/* Live no-flow: open stop / ATG nudge banner and the reason sheet */
-.operator-noflow {
-  border-radius: var(--op-radius);
-  padding: var(--spacing-3);
-  border: 1px solid #ef9f27;
-  background: #faeeda;
-  color: #412402;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.operator-noflow--open {
-  border-color: #b4b2a9;
-  background: var(--color-bg-lighter);
-  color: var(--color-text-charcoal);
-}
-.operator-noflow__title {
-  font-weight: var(--font-weight-semibold);
-}
-.operator-noflow__meta,
-.operator-noflow__hint {
-  font-size: var(--font-size-small);
-  margin: 0;
-}
-.operator-noflow__actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--spacing-2);
-}
-.operator-stop-sheet__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: var(--spacing-2);
-}
-.operator-stop-chip {
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border-medium);
-  background: var(--color-bg-white);
-  font-family: var(--font-primary);
-  font-size: var(--font-size-small);
-  cursor: pointer;
-}
-.operator-stop-chip.is-active {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-text-white);
-}
-.operator-stop-sheet__actions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-}
-.operator-milestone__flow-stopped {
-  grid-column: 1 / -1;
 }

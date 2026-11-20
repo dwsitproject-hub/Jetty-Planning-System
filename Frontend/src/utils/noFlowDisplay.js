@@ -43,7 +43,7 @@ export function buildStripSegments(summary) {
   let cursor = 0
   for (const stop of mergeStops(summary)) {
     const left = pct(ms(stop.startedAt))
-    const right = stop.endedAt ? pct(ms(stop.endedAt)) : 100
+    const right = pct(ms(stop.endedAt))
     if (right <= left) continue
     if (left > cursor) out.push({ kind: 'flow', leftPct: cursor, widthPct: left - cursor })
     out.push({ kind: stop.kind, leftPct: left, widthPct: right - left, stop })

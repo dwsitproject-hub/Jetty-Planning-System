@@ -43,9 +43,7 @@
   },
   "phase": {
     "operational": "Operational",
-    "postChecking": "Post-Checking",
-    "stops": "Stops",
-    "stopsBadgeAria": "{{count}} stops need a reason"
+    "postChecking": "Post-Checking"
   },
   "milestone": {
     "opening_hatch": "OPENING",
@@ -140,32 +138,5 @@
     "prevSegmentMissingTanks": "Previous cargo segment is missing tank data. Ask your Supervisor to review this operation in At-Berth desktop.",
     "verifyPrecheckFailed": "Could not verify Pre-Checking status",
     "milestoneStarted": "{{name}} started"
-  },
-  "noFlow": {
-    "flowStopped": "Flow stopped",
-    "flowResumed": "Flow resumed",
-    "changeReason": "Change reason",
-    "openTitle": "Flow stopped · {{reason}}",
-    "since": "Since {{time}}",
-    "closesOnStart": "Closes when you start cargo again.",
-    "nudgeTitle": "No flow on {{tanks}}",
-    "nudgeMeta": "ATG flat since {{time}} ({{duration}}). What’s happening?",
-    "more": "More…",
-    "sheetTitle_cargo_stop": "Why are you stopping?",
-    "sheetTitle_flow_pause": "Why did flow stop?",
-    "sheetTitle_nudge": "Why is there no flow?",
-    "sheetTitle_change": "Change stop reason",
-    "confirm_cargo_stop": "Stop and save reason",
-    "confirm_flow_pause": "Save stop",
-    "confirm_nudge": "Save stop",
-    "confirm_change": "Save",
-    "endOfCargo": "End of cargo",
-    "skip": "Skip for now",
-    "allReasons": "All reasons",
-    "selectReason": "Select a reason",
-    "noteLabel": "Note (optional)",
-    "noteRequiredLabel": "Note (required)",
-    "reasonRequired": "Select a reason.",
-    "noteRequired": "Add a note for this reason."
   }
 }

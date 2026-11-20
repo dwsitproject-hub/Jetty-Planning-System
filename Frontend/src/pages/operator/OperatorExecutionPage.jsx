@@ -11,11 +11,6 @@ import OperatorTankPickerSheet from '../../components/operator/OperatorTankPicke
 import PurposeBadge from '../../components/PurposeBadge'
 import { useOperatorExecution } from '../../components/operator/useOperatorExecution'
 import { useRbac } from '../../context/RbacContext'
-import { NoFlowLogView } from '../../components/noflow/NoFlowLogPanel.jsx'
-import OperatorNoFlowBanner from '../../components/operator/OperatorNoFlowBanner'
-import OperatorStopReasonSheet from '../../components/operator/OperatorStopReasonSheet'
-import { useOperatorNoFlow } from '../../components/operator/useOperatorNoFlow'
-
 export default function OperatorExecutionPage() {
   const { operationId: operationIdParam } = useParams()
   const operationId = Number(operationIdParam)
@@ -29,13 +24,6 @@ export default function OperatorExecutionPage() {
   const [phase, setPhase] = useState('operational')
   const [tankPickerOpen, setTankPickerOpen] = useState(false)
   const [editModal, setEditModal] = useState(null)
-  const noFlow = useOperatorNoFlow({
-    operationId: Number.isFinite(operationId) ? operationId : null,
-    editable,
-    milestones: exec.milestones,
-    stopCargo: exec.stopCargo,
-  })
-  const cargoActive = (exec.milestones || []).some((m) => m.key === 'cargo_operations' && m.state === 'active')
 
   const lastCargoCommodityId = exec.lastCargoCommodityId ?? null
 
@@ -178,28 +166,11 @@ export default function OperatorExecutionPage() {
           />
         </header>
 
-        <OperatorPhaseTabs
-          phase={phase}
-          onChange={setPhase}
-          stopsBadge={noFlow.log.summary?.totals?.unexplainedCount ?? 0}
-        />
+        <OperatorPhaseTabs phase={phase} onChange={setPhase} />
       </div>
 
       <div className="operator-exec__body">
         {exec.error ? <p className="operator-error-banner">{exec.error}</p> : null}
-
-        <OperatorNoFlowBanner
-          openStop={noFlow.openStop}
-          nudge={noFlow.nudge}
-          reasons={noFlow.log.reasons}
-          cargoActive={cargoActive}
-          canEdit={editable}
-          busy={noFlow.busy}
-          onResume={noFlow.flowResumed}
-          onChangeReason={() => noFlow.openSheet('change')}
-          onQuickPick={noFlow.quickPickNudge}
-          onMore={() => noFlow.openSheet('nudge')}
-        />
 
         {phase === 'operational' ? (
           <OperatorMilestoneCards
@@ -214,14 +185,11 @@ export default function OperatorExecutionPage() {
             canEdit={editable}
             busy={exec.busy}
             onStart={handleStart}
-            onStopCargo={noFlow.openStop ? exec.stopCargo : () => noFlow.openSheet('cargo_stop')}
-            onFlowStopped={noFlow.openStop ? null : () => noFlow.openSheet('flow_pause')}
+            onStopCargo={exec.stopCargo}
             onCompleteOther={exec.completeOther}
             onEditTimestamp={handleEditMilestone}
             onEditCargoSegment={handleEditCargoSegment}
           />
-        ) : phase === 'stops' ? (
-          <NoFlowLogView operationId={operationId} log={noFlow.log} layout="cards" />
         ) : (
           <OperatorPostCheckingPanel
             steps={exec.postSteps}
@@ -248,16 +216,6 @@ export default function OperatorExecutionPage() {
           const ok = await exec.startMilestone('cargo_operations', { tankIds, commodityId })
           if (ok) setTankPickerOpen(false)
         }}
-      />
-
-      <OperatorStopReasonSheet
-        sheet={noFlow.sheet}
-        reasons={noFlow.log.reasons}
-        initialReasonId={noFlow.sheet?.mode === 'change' ? noFlow.openStop?.reasonId : ''}
-        busy={noFlow.busy || exec.busy}
-        onCancel={noFlow.closeSheet}
-        onConfirm={noFlow.confirm}
-        onStopOnly={noFlow.stopWithoutReason}
       />
 
       <OperatorEditTimestampModal

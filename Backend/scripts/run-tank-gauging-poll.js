@@ -11,7 +11,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, verifyConnection } from '../src/db.js';
 import { runTankGaugingPollJob } from '../src/lib/tank-gauging-poll-job.js';
-import { runNoFlowLiveCheck } from '../src/lib/no-flow-live.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,14 +42,6 @@ async function main() {
     skipLock: args.skipLock,
   });
   console.log(JSON.stringify(result));
-  if (!result.skipped && !args.fixturePath) {
-    // Fresh ATG samples: close open stops where flow is back, alert on new no-flow runs.
-    try {
-      console.log(JSON.stringify({ noFlowLive: await runNoFlowLiveCheck(pool) }));
-    } catch (e) {
-      console.error('[run-tank-gauging-poll] no-flow live check failed', e?.message || e);
-    }
-  }
   await pool.end();
   if (result.skipped) process.exit(0);
   process.exit(result.ok ? 0 : 1);

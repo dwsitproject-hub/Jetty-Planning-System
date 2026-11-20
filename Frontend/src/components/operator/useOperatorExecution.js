@@ -663,7 +663,7 @@ export function useOperatorExecution(operationId) {
         if (!window.confirm(msg)) return
       }
     }
-    const ok = await runMutation(async () => {
+    await runMutation(async () => {
       await updateOperationalEntry(
         operationId,
         entry.id,
@@ -677,8 +677,6 @@ export function useOperatorExecution(operationId) {
         { scheduleIana: tz }
       )
     }, i18n.t('operator:toast.cargoStopped'))
-    // Stop time, so a no-flow stop can start exactly where the cargo entry ended.
-    return ok ? endIso : null
   }, [
     activities,
     commodityType,

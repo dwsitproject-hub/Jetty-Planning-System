@@ -1,90 +1,59 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { deleteNoFlowEvent, fetchNoFlow, fetchNoFlowReasonOptions } from '../../api/noFlow'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay.js'
 import { getScheduleEntryTimeZone } from '../../utils/scheduleDateTime.js'
 import { buildStripSegments, formatStopDuration, mergeStops, reasonName } from '../../utils/noFlowDisplay.js'
 import NoFlowReasonModal from './NoFlowReasonModal.jsx'
-import NoFlowStopCards from './NoFlowStopCards.jsx'
-import { useNoFlowLog } from './useNoFlowLog.js'
 import '../../styles/no-flow.css'
 
-/** Self-loading no-flow log for desktop pages (table layout). */
-export default function NoFlowLogPanel({ operationId, scheduleTimezone, readOnly = false }) {
-  const log = useNoFlowLog(operationId, { readOnly })
-  return <NoFlowLogView operationId={operationId} log={log} scheduleTimezone={scheduleTimezone} />
-}
-
-function StopTable({ stops, readOnly, onEdit, onRemove, onClose }) {
-  const { t, i18n } = useTranslation('pages')
-  return (
-    <div className="table-wrap">
-      <table className="data-table no-flow__table">
-        <thead>
-          <tr>
-            <th>{t('noFlowColTime')}</th>
-            <th>{t('noFlowColDuration')}</th>
-            <th>{t('noFlowColFoundBy')}</th>
-            <th>{t('noFlowColReason')}</th>
-            {!readOnly ? <th aria-label={t('noFlowColActions')} /> : null}
-          </tr>
-        </thead>
-        <tbody>
-          {stops.map((s) => (
-            <tr key={s.key}>
-              <td>{formatDateTimeDisplay(s.startedAt)} – {s.endedAt ? formatDateTimeDisplay(s.endedAt) : <span className="no-flow__pill no-flow__pill--live">{t('noFlowInProgress')}</span>}</td>
-              <td>{formatStopDuration(s.minutes)}</td>
-              <td><span className="no-flow__pill">{t(`noFlowSourceShort_${s.source}`)}</span></td>
-              <td>
-                {s.kind === 'event' ? (
-                  <>
-                    {reasonName(s, i18n.language)}
-                    {s.note ? <div className="text-steel no-flow__note">{s.note}</div> : null}
-                  </>
-                ) : (
-                  <span className="no-flow__pill no-flow__pill--warn">{t('noFlowNeedsReason')}</span>
-                )}
-              </td>
-              {!readOnly ? (
-                <td className="no-flow__actions">
-                  {s.kind === 'event' ? (
-                    <>
-                      {s.isOpen ? (
-                        <button type="button" className="btn btn--small btn--primary" onClick={() => onClose(s)}>{t('noFlowFlowResumed')}</button>
-                      ) : null}
-                      <button type="button" className="btn btn--small btn--secondary" onClick={() => onEdit(s)}>{t('noFlowEdit')}</button>
-                      <button type="button" className="btn btn--small btn--secondary" onClick={() => onRemove(s)}>{t('noFlowDelete')}</button>
-                    </>
-                  ) : (
-                    <button type="button" className="btn btn--small btn--primary" onClick={() => onEdit(s)}>{t('noFlowAddReason')}</button>
-                  )}
-                </td>
-              ) : null}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 /**
- * No-flow log view: flow strip, stop list and the add / edit form.
- * `layout="cards"` renders the phone layout used in operator mode.
+ * No-flow log of one voyage: flow strip, stop list (recorded + needs reason) and the
+ * add / edit form. `readOnly` hides the actions (e.g. sailed voyages).
  */
-export function NoFlowLogView({ operationId, log, scheduleTimezone, layout = 'table' }) {
-  const { t } = useTranslation('pages')
+export default function NoFlowLogPanel({ operationId, scheduleTimezone, readOnly = false }) {
+  const { t, i18n } = useTranslation('pages')
   const tz = scheduleTimezone || getScheduleEntryTimeZone()
+  const [summary, setSummary] = useState(null)
+  const [reasons, setReasons] = useState([])
+  const [error, setError] = useState('')
   const [editing, setEditing] = useState(null)
-  const { summary, reasons, error, load, remove, close, readOnly } = log
+
+  const load = useCallback(async () => {
+    try {
+      setError('')
+      setSummary(await fetchNoFlow(operationId))
+    } catch (e) {
+      setError(e?.message || t('noFlowLoadFailed'))
+    }
+  }, [operationId, t])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  useEffect(() => {
+    if (readOnly) return
+    fetchNoFlowReasonOptions().then(setReasons).catch(() => setReasons([]))
+  }, [readOnly])
+
+  const remove = async (stop) => {
+    if (!window.confirm(t('noFlowDeleteConfirm'))) return
+    try {
+      await deleteNoFlowEvent(operationId, stop.id)
+      load()
+    } catch (e) {
+      setError(e?.message || t('noFlowSaveFailed'))
+    }
+  }
 
   if (error) return <p className="no-flow__error">{error}</p>
   if (!summary) return <p className="text-steel">{t('noFlowLoading')}</p>
   const stops = mergeStops(summary)
   const { unexplainedCount, unexplainedMinutes } = summary.totals
-  const List = layout === 'cards' ? NoFlowStopCards : StopTable
 
   return (
-    <section className={`no-flow no-flow--${layout}`}>
+    <section className="no-flow">
       <div className="no-flow__head">
         <h4 className="no-flow__title">{t('noFlowTitle')}</h4>
         {unexplainedCount > 0 ? (
@@ -95,7 +64,7 @@ export function NoFlowLogView({ operationId, log, scheduleTimezone, layout = 'ta
           <span className="no-flow__pill no-flow__pill--ok">{t('noFlowAllExplained')}</span>
         )}
         {!readOnly ? (
-          <button type="button" className="btn btn--secondary btn--small no-flow__add" onClick={() => setEditing({ kind: 'manual', source: 'manual' })}>
+          <button type="button" className="btn btn--secondary btn--small" onClick={() => setEditing({ kind: 'manual', source: 'manual' })}>
             {t('noFlowAddManual')}
           </button>
         ) : null}
@@ -127,7 +96,52 @@ export function NoFlowLogView({ operationId, log, scheduleTimezone, layout = 'ta
         <p className="text-steel">{t('noFlowNoEntries')}</p>
       )}
 
-      {stops.length > 0 ? <List stops={stops} readOnly={readOnly} onEdit={setEditing} onRemove={remove} onClose={close} /> : null}
+      {stops.length > 0 ? (
+        <div className="table-wrap">
+          <table className="data-table no-flow__table">
+            <thead>
+              <tr>
+                <th>{t('noFlowColTime')}</th>
+                <th>{t('noFlowColDuration')}</th>
+                <th>{t('noFlowColFoundBy')}</th>
+                <th>{t('noFlowColReason')}</th>
+                {!readOnly ? <th aria-label={t('noFlowColActions')} /> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {stops.map((s) => (
+                <tr key={s.key}>
+                  <td>{formatDateTimeDisplay(s.startedAt)} – {formatDateTimeDisplay(s.endedAt)}</td>
+                  <td>{formatStopDuration(s.minutes)}</td>
+                  <td><span className="no-flow__pill">{t(`noFlowSourceShort_${s.source}`)}</span></td>
+                  <td>
+                    {s.kind === 'event' ? (
+                      <>
+                        {reasonName(s, i18n.language)}
+                        {s.note ? <div className="text-steel no-flow__note">{s.note}</div> : null}
+                      </>
+                    ) : (
+                      <span className="no-flow__pill no-flow__pill--warn">{t('noFlowNeedsReason')}</span>
+                    )}
+                  </td>
+                  {!readOnly ? (
+                    <td className="no-flow__actions">
+                      {s.kind === 'event' ? (
+                        <>
+                          <button type="button" className="btn btn--small btn--secondary" onClick={() => setEditing(s)}>{t('noFlowEdit')}</button>
+                          <button type="button" className="btn btn--small btn--secondary" onClick={() => remove(s)}>{t('noFlowDelete')}</button>
+                        </>
+                      ) : (
+                        <button type="button" className="btn btn--small btn--primary" onClick={() => setEditing(s)}>{t('noFlowAddReason')}</button>
+                      )}
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <p className="text-steel no-flow__hint">{t('noFlowMinHint', { minutes: summary.minMinutes })}</p>
 
       {editing ? (

@@ -217,7 +217,6 @@ export default function AdminEmailDeliveryLog() {
             <option value="">{t('emailLogAllEvents')}</option>
             <option value="operation.sla_etc_d1">SLA D-1 Reminder</option>
             <option value="operation.sla_etc_breach">SLA Breach Alert</option>
-            <option value="operation.no_flow_detected">No-flow Alert</option>
             <option value="operation.signoff_requested">Clearance Sign Off Request</option>
             <option value="shipment_plan.submitted">Shipment Plan Approval</option>
             <option value="shipment_plan.partner_submitted">Partner Shipment Plan Received</option>

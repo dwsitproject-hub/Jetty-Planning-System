@@ -43,9 +43,7 @@
   },
   "phase": {
     "operational": "Operasional",
-    "postChecking": "Post-Checking",
-    "stops": "Henti",
-    "stopsBadgeAria": "{{count}} henti perlu alasan"
+    "postChecking": "Post-Checking"
   },
   "milestone": {
     "opening_hatch": "OPENING",
@@ -140,32 +138,5 @@
     "prevSegmentMissingTanks": "Segmen cargo sebelumnya tidak memiliki data tangki. Minta Supervisor meninjau operasi ini di At-Berth desktop.",
     "verifyPrecheckFailed": "Tidak dapat memverifikasi status Pre-Checking",
     "milestoneStarted": "{{name}} dimulai"
-  },
-  "noFlow": {
-    "flowStopped": "Aliran berhenti",
-    "flowResumed": "Aliran lanjut",
-    "changeReason": "Ubah alasan",
-    "openTitle": "Aliran berhenti · {{reason}}",
-    "since": "Sejak {{time}}",
-    "closesOnStart": "Tertutup otomatis saat kargo dimulai lagi.",
-    "nudgeTitle": "Tidak ada aliran di {{tanks}}",
-    "nudgeMeta": "ATG datar sejak {{time}} ({{duration}}). Apa yang terjadi?",
-    "more": "Lainnya…",
-    "sheetTitle_cargo_stop": "Kenapa berhenti?",
-    "sheetTitle_flow_pause": "Kenapa aliran berhenti?",
-    "sheetTitle_nudge": "Kenapa tidak ada aliran?",
-    "sheetTitle_change": "Ubah alasan henti",
-    "confirm_cargo_stop": "Stop dan simpan alasan",
-    "confirm_flow_pause": "Simpan henti",
-    "confirm_nudge": "Simpan henti",
-    "confirm_change": "Simpan",
-    "endOfCargo": "Kargo selesai",
-    "skip": "Lewati dulu",
-    "allReasons": "Semua alasan",
-    "selectReason": "Pilih alasan",
-    "noteLabel": "Catatan (opsional)",
-    "noteRequiredLabel": "Catatan (wajib)",
-    "reasonRequired": "Pilih alasan.",
-    "noteRequired": "Tambahkan catatan untuk alasan ini."
   }
 }

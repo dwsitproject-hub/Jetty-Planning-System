@@ -25,13 +25,3 @@ export function updateNoFlowEvent(operationId, eventId, body) {
 export function deleteNoFlowEvent(operationId, eventId) {
   return apiDelete(`/operations/${operationId}/no-flow-events/${eventId}`)
 }
-
-/** Open stop + ATG nudge for the operator screen. */
-export function fetchNoFlowLive(operationId) {
-  return apiGet(`/operations/${operationId}/no-flow/live`)
-}
-
-/** Flow resumed: close the open stop (end = now). */
-export function closeNoFlowEvent(operationId, eventId) {
-  return apiPost(`/operations/${operationId}/no-flow-events/${eventId}/close`, {})
-}

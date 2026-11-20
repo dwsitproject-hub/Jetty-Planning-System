@@ -605,18 +605,13 @@ export default function Verification() {
   const handleApproveSignoff = async (r) => {
     if (!r?.operationId) return
     const noFlow = await fetchNoFlow(r.operationId).catch(() => null)
-    const noFlowWarning = [
+    const noFlowWarning =
       noFlow?.totals?.unexplainedCount > 0
-        ? t('noFlowSignoffWarning', {
+        ? `${t('noFlowSignoffWarning', {
             count: noFlow.totals.unexplainedCount,
             duration: formatStopDuration(noFlow.totals.unexplainedMinutes),
-          })
-        : null,
-      noFlow?.openStop ? t('noFlowSignoffOpenWarning') : null,
-    ]
-      .filter(Boolean)
-      .map((line) => `${line}\n\n`)
-      .join('')
+          })}\n\n`
+        : ''
     if (!window.confirm(`${noFlowWarning}Sign off operation for ${r.vesselName || 'this vessel'}? It will move to Ready to Sail.`)) return
     setSignoffBusyId(r.operationId)
     setSubmitErr(null)

@@ -15,8 +15,6 @@ export default function OperatorMilestoneCards({
   busy,
   onStart,
   onStopCargo,
-  /** Pause flow without ending the cargo entry; null while a stop is already open. */
-  onFlowStopped = null,
   onCompleteOther,
   onEditTimestamp,
   onEditCargoSegment,
@@ -86,16 +84,6 @@ export default function OperatorMilestoneCards({
                   onClick={onStopCargo}
                 >
                   {t('action.stop')}
-                </button>
-              ) : null}
-              {isCargo && showStop && onFlowStopped ? (
-                <button
-                  type="button"
-                  className="op-btn op-btn--soft operator-milestone__flow-stopped"
-                  disabled={!canEdit || busy}
-                  onClick={onFlowStopped}
-                >
-                  {t('noFlow.flowStopped')}
                 </button>
               ) : null}
               {showComplete ? (
