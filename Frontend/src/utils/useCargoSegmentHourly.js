@@ -15,6 +15,7 @@ export function useCargoSegmentHourly({
   cargoLoadLinesDraft,
   tankMetaById,
   normalizeStartEnd,
+  commodityType = 'Liquid',
   liveAtgTick = 0,
   enabled = true,
   debounceMs = 400,
@@ -30,18 +31,22 @@ export function useCargoSegmentHourly({
     return buildCargoSegmentHourlyRequests(
       cargoLoadLinesDraft,
       tankMetaById,
-      normalizeStartEnd
+      normalizeStartEnd,
+      commodityType
     )
-  }, [enabled, operationId, cargoLoadLinesDraft, tankMetaById, normalizeStartEnd])
+  }, [enabled, operationId, cargoLoadLinesDraft, tankMetaById, normalizeStartEnd, commodityType])
+
+  const solid = commodityType === 'Solid'
 
   const hasOpenSegment = useMemo(
     () =>
       (cargoLoadLinesDraft || []).some((row) => {
         if (!row.start || row.end) return false
+        if (solid) return true
         const { atgTankIds } = partitionDraftTanks(row.tankIds, tankMetaById)
         return atgTankIds.length > 0 && row.atgQtyMode !== 'manual'
       }),
-    [cargoLoadLinesDraft, tankMetaById]
+    [cargoLoadLinesDraft, tankMetaById, solid]
   )
 
   const signature = useMemo(

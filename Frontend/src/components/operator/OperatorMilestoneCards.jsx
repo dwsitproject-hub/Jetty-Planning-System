@@ -9,6 +9,8 @@ export default function OperatorMilestoneCards({
   cargoMetricLabel,
   segmentHourlyByKey,
   segmentHourlyLoading,
+  operationId = null,
+  scheduleTimezone = 'Asia/Jakarta',
   canEdit,
   busy,
   onStart,
@@ -55,6 +57,8 @@ export default function OperatorMilestoneCards({
                 cargoMetricLabel={cargoMetricLabel}
                 segmentHourlyByKey={segmentHourlyByKey}
                 segmentHourlyLoading={segmentHourlyLoading}
+                operationId={operationId}
+                scheduleTimezone={scheduleTimezone}
                 canEdit={canEdit}
                 busy={busy}
                 onEditSegment={onEditCargoSegment}

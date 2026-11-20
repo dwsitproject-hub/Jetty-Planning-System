@@ -9,6 +9,8 @@ import {
   computeDirectionalTankDelta,
   computeHourlyBucketsFromManualCheckpoints,
   getHourlyBucketsForLineEntry,
+  getHourlyBucketsForTanklessLine,
+  getHourlyOperationalProgress,
   mergeHourlyBuckets,
   buildHourlyRateSummary,
   manualTankLabel,
@@ -302,14 +304,70 @@ describe('buildHourlyRateSummary', () => {
   });
 });
 
+describe('getHourlyBucketsForTanklessLine', () => {
+  const mockDb = { query: async () => ({ rows: [] }) };
+
+  it('spreads closed segment total qty across clock hours', async () => {
+    const ctx = { timezone: 'UTC', flatRateThresholdTph: 2, minQtyMovedT: 1 };
+    const line = {
+      startedAt: '2026-08-04T00:00:00.000Z',
+      endedAt: '2026-08-04T08:00:00.000Z',
+      qty: 800,
+    };
+    const buckets = await getHourlyBucketsForTanklessLine(mockDb, ctx, line);
+    const total = buckets.reduce((s, b) => s + b.qtyMoved, 0);
+    assert.ok(Math.abs(total - 800) < 2);
+    assert.ok(buckets.every((b) => b.source === 'manual'));
+  });
+});
+
+describe('getHourlyOperationalProgress tankless', () => {
+  it('includes solid lines without tanks', async () => {
+    const db = { query: async () => ({ rows: [] }) };
+    const ctx = {
+      commodityType: 'Solid',
+      timezone: 'UTC',
+      siMetric: 'MT',
+      siQty: 1000,
+      lines: [
+        {
+          startedAt: '2026-08-04T00:00:00.000Z',
+          endedAt: '2026-08-04T10:00:00.000Z',
+          qty: 500,
+          tankIds: [],
+        },
+      ],
+    };
+    const r = await getHourlyOperationalProgress(db, ctx);
+    assert.ok(r.hourlyBuckets.length > 0);
+    assert.ok(Math.abs(r.movedQty - 500) < 1);
+  });
+});
+
 describe('getHourlyBucketsForLineEntry window scoping', () => {
-  it('returns empty when start or tanks missing', async () => {
+  it('returns empty when start missing', async () => {
     const buckets = await getHourlyBucketsForLineEntry(
       {},
       { commodityType: 'Liquid', timezone: 'Asia/Jakarta' },
       { startedAt: null, tankIds: [1] }
     );
     assert.deepEqual(buckets, []);
+  });
+
+  it('computes tankless solid segment without tanks', async () => {
+    const db = { query: async () => ({ rows: [] }) };
+    const buckets = await getHourlyBucketsForLineEntry(
+      db,
+      { commodityType: 'Solid', timezone: 'UTC', flatRateThresholdTph: 2, minQtyMovedT: 1 },
+      {
+        startedAt: '2026-08-04T00:00:00.000Z',
+        endedAt: '2026-08-04T04:00:00.000Z',
+        qty: 400,
+        tankIds: [],
+      }
+    );
+    assert.ok(buckets.length > 0);
+    assert.ok(Math.abs(buckets.reduce((s, b) => s + b.qtyMoved, 0) - 400) < 1);
   });
 
   it('buildClockHourBuckets respects segment end before next line start', () => {

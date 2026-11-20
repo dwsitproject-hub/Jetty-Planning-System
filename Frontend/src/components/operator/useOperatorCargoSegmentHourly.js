@@ -13,6 +13,7 @@ export function useOperatorCargoSegmentHourly({
   operationId,
   segments,
   tankOptions,
+  commodityType = 'Liquid',
   enabled = true,
   debounceMs = 400,
   pollMs = 30000,
@@ -28,11 +29,14 @@ export function useOperatorCargoSegmentHourly({
 
   const apiSegments = useMemo(() => {
     if (!enabled || !operationId) return []
-    return buildOperatorSegmentHourlyRequests(segments, tankMetaById)
-  }, [enabled, operationId, segments, tankMetaById])
+    return buildOperatorSegmentHourlyRequests(segments, tankMetaById, commodityType)
+  }, [enabled, operationId, segments, tankMetaById, commodityType])
 
   const hasOpenSegment = useMemo(
-    () => (segments || []).some((seg) => seg.showHourly && seg.isOpen),
+    () =>
+      (segments || []).some(
+        (seg) => seg.isOpen && (seg.showHourly || seg.showManualCheckpoints)
+      ),
     [segments]
   )
 

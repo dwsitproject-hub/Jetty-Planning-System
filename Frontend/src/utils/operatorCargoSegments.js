@@ -18,8 +18,8 @@ function resolveSegmentTankIds(line, entry) {
   return []
 }
 
-function segmentShowsHourly({ tankIds, atgQtyMode, commodityType, tankOptions }) {
-  if (commodityType !== 'Liquid') return false
+function segmentShowsHourly({ tankIds, atgQtyMode, commodityType, tankOptions, startAt }) {
+  if (commodityType === 'Solid') return Boolean(startAt)
   if (!tankIds?.length) return false
   if (atgQtyMode === 'manual') return false
   const meta = new Map((tankOptions || []).map((t) => [String(t.id), t]))
@@ -64,7 +64,16 @@ export function buildOperatorCargoSegments(activities, purpose, opts = {}) {
         atgQtyMode,
         commodityShortDisplay: line.commodityShortDisplay || null,
         commodityId: line.commodityId != null ? String(line.commodityId) : null,
-        showHourly: segmentShowsHourly({ tankIds, atgQtyMode, commodityType, tankOptions }),
+        showHourly: segmentShowsHourly({
+          tankIds,
+          atgQtyMode,
+          commodityType,
+          tankOptions,
+          startAt: line.startAt,
+        }),
+        showManualCheckpoints: commodityType === 'Solid' && Boolean(line.startAt && !line.endAt),
+        showAtgHourly: commodityType === 'Liquid',
+        showManualHourly: commodityType === 'Solid' || atgQtyMode === 'manual',
         qtyLabel: Number.isFinite(qty) && qty > 0 ? `${formatQtyNumber(qty)} MT` : null,
       })
     })

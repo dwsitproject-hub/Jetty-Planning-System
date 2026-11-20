@@ -1585,7 +1585,10 @@ router.post('/operations/:operationId/cargo-segment-hourly', async (req, res) =>
     const tankIds =
       draftTankIds.length > 0 ? draftTankIds : dbLine?.tankIds?.length ? dbLine.tankIds : [];
 
-    if (!startIso || !tankIds.length) {
+    const allowTankless =
+      ctx.commodityType === 'Solid' || (loadLineId != null && startIso && !tankIds.length);
+
+    if (!startIso || (!tankIds.length && !allowTankless)) {
       outSegments.push({
         clientKey,
         hourlyBuckets: [],
@@ -1596,11 +1599,13 @@ router.post('/operations/:operationId/cargo-segment-hourly', async (req, res) =>
     }
 
     const atgQtyMode =
-      (seg.atgQtyMode ?? seg.atg_qty_mode) === 'manual'
+      ctx.commodityType === 'Solid'
         ? 'manual'
-        : dbLine?.atgQtyMode === 'manual'
+        : (seg.atgQtyMode ?? seg.atg_qty_mode) === 'manual'
           ? 'manual'
-          : 'auto';
+          : dbLine?.atgQtyMode === 'manual'
+            ? 'manual'
+            : 'auto';
 
     const line = {
       id: loadLineId ?? undefined,
@@ -1609,7 +1614,9 @@ router.post('/operations/:operationId/cargo-segment-hourly', async (req, res) =>
       tankIds,
       manualOverrideTankIds: draftOverrideIds.length ? draftOverrideIds : (dbLine?.manualOverrideTankIds ?? []),
       manualOverrideNote: dbLine?.manualOverrideNote ?? null,
-      tankCodeById: Object.fromEntries(await loadTankCodes(pool, tankIds.map(Number).filter((n) => n > 0))),
+      tankCodeById: Object.fromEntries(
+        await loadTankCodes(pool, tankIds.map(Number).filter((n) => n > 0))
+      ),
       atgQtyMode,
       qty: dbLine?.qty ?? null,
       manualQty: dbLine?.manualQty ?? null,
