@@ -44,6 +44,7 @@ import {
   resolveMovementTypeColumns,
   retagKurasForOperation,
 } from '../lib/kuras-movement-store.js';
+import { closeOpenStopOnCargoStart } from '../lib/no-flow-store.js';
 
 const router = express.Router();
 
@@ -722,6 +723,11 @@ async function refreshOperationalProgressAfterCargoSave(q, operationId) {
     await retagKurasForOperation(q, operationId);
   } catch (e) {
     console.error('[cargo-save] kuras re-tag failed', { operationId, err: e?.message || e });
+  }
+  try {
+    await closeOpenStopOnCargoStart(q, operationId);
+  } catch (e) {
+    console.error('[cargo-save] no-flow close failed', { operationId, err: e?.message || e });
   }
 }
 

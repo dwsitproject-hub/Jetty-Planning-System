@@ -58,6 +58,19 @@ test('recorded stops cut out what is already explained', () => {
   );
 });
 
+test('an open stop covers everything after its start', () => {
+  const stops = detectUnexplainedStops({
+    lines: [
+      { startedAt: '2026-10-19T00:00:00Z', endedAt: '2026-10-19T01:00:00Z' },
+      { startedAt: '2026-10-19T05:00:00Z', endedAt: null },
+    ],
+    hours: [H('06', '07', 'flat_movement'), H('07', '08', 'flat_movement')],
+    events: [{ startedAt: '2026-10-19T01:00:00Z', endedAt: null }],
+    minMinutes: 60,
+  });
+  assert.deepEqual(stops, []);
+});
+
 test('flowWindow spans first start to last end, or now while open', () => {
   const lines = [
     { startedAt: '2026-10-19T01:00:00Z', endedAt: '2026-10-19T02:00:00Z' },

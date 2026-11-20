@@ -29,14 +29,14 @@ export default function NoFlowReasonModal({ operationId, stop, reasons, tz, onSa
   )
 
   const save = async () => {
-    if (!from || !to) return setError(t('noFlowTimesRequired'))
+    if (!from || (!to && !stop?.isOpen)) return setError(t('noFlowTimesRequired'))
     if (!reasonId) return setError(t('noFlowReasonRequired'))
     if (selected?.requiresNote && note.trim().length < 3) return setError(t('noFlowNoteRequired'))
     setSaving(true)
     setError('')
     const body = {
       startedAt: normalizeForApi(from, tz),
-      endedAt: normalizeForApi(to, tz),
+      endedAt: to ? normalizeForApi(to, tz) : null,
       reasonId,
       note: note.trim() || null,
       source: stop?.source || 'manual',

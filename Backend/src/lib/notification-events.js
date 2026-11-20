@@ -9,10 +9,14 @@ export const WORKFLOW_NOTIFICATION_EVENTS = [
 
 export const SLA_NOTIFICATION_EVENTS = ['operation.sla_etc_d1', 'operation.sla_etc_breach'];
 
+/** ATG shows no flow on an open cargo entry (sent by the tank gauging poll). */
+export const NO_FLOW_NOTIFICATION_EVENT = 'operation.no_flow_detected';
+
 /** Display order for Admin → Notification Settings. */
 export const ADMIN_CONFIGURABLE_NOTIFICATION_EVENTS = [
   ...WORKFLOW_NOTIFICATION_EVENTS,
   ...SLA_NOTIFICATION_EVENTS,
+  NO_FLOW_NOTIFICATION_EVENT,
 ];
 
 export const NOTIFICATION_EVENT_CONFIG = {
@@ -39,6 +43,10 @@ export const NOTIFICATION_EVENT_CONFIG = {
     approvePageKey: null,
     adminConfigured: true,
   },
+  'operation.no_flow_detected': {
+    approvePageKey: null,
+    adminConfigured: true,
+  },
   'notification.email_echo': {
     /** Echo rows are targeted to a single user; no recipient query. */
     approvePageKey: null,
@@ -51,6 +59,7 @@ export const EVENT_LABELS = {
   'operation.signoff_requested': 'Clearance Sign Off Request',
   'operation.sla_etc_d1': 'SLA D-1 Reminder',
   'operation.sla_etc_breach': 'SLA Breach Alert',
+  'operation.no_flow_detected': 'No-flow Alert',
   'notification.email_echo': 'Email Sent',
 };
 

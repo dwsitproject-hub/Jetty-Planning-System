@@ -74,15 +74,15 @@ function subtract(period, covers) {
  * @param {{
  *   lines: Array<{ startedAt: string, endedAt: string|null }>,
  *   hours: Array<{ hourStart: string, hourEnd: string, status: string }>,
- *   events: Array<{ startedAt: string, endedAt: string }>,
+ *   events: Array<{ startedAt: string, endedAt: string|null }>,
  *   minMinutes: number,
- * }} input
+ * }} input  An event without endedAt is an open stop and covers everything after its start.
  * @returns {Array<{ startedAt: string, endedAt: string, minutes: number, source: 'gap'|'atg_flat' }>}
  */
 export function detectUnexplainedStops({ lines = [], hours = [], events = [], minMinutes = 60 }) {
   const covers = events
-    .map((e) => ({ start: ms(e.startedAt), end: ms(e.endedAt) }))
-    .filter((c) => Number.isFinite(c.start) && Number.isFinite(c.end));
+    .map((e) => ({ start: ms(e.startedAt), end: e.endedAt ? ms(e.endedAt) : Infinity }))
+    .filter((c) => Number.isFinite(c.start) && !Number.isNaN(c.end));
   const minMs = Math.max(1, Number(minMinutes) || 60) * 60000;
   return union([...gapPeriods(lines), ...flatPeriods(hours)])
     .flatMap((p) => subtract(p, covers))
@@ -103,4 +103,23 @@ export function flowWindow(lines, nowMs = Date.now()) {
   const ends = lines.map((l) => ms(l.endedAt)).filter(Number.isFinite);
   const end = open ? nowMs : Math.max(...ends);
   return { startedAt: iso(Math.min(...starts)), endedAt: iso(Math.max(end, Math.min(...starts))), isOpen: open };
+}
+
+/**
+ * @param {Array<{ startMs: number, endMs: number, qty: number|null }>} windows newest first
+ * @param {number} flatRatePerHour below this a window counts as no flow
+ * @returns {{ known: boolean, flowingNow: boolean, flatSinceMs: number|null }}
+ */
+export function classifyFlatRun(windows, flatRatePerHour) {
+  const rate = (w) => (w.qty == null ? null : Math.abs(w.qty) / ((w.endMs - w.startMs) / 3600000));
+  const newest = windows[0];
+  if (!newest || rate(newest) == null) return { known: false, flowingNow: false, flatSinceMs: null };
+  if (rate(newest) >= flatRatePerHour) return { known: true, flowingNow: true, flatSinceMs: null };
+  let flatSinceMs = newest.startMs;
+  for (const w of windows.slice(1)) {
+    const r = rate(w);
+    if (r == null || r >= flatRatePerHour) break;
+    flatSinceMs = w.startMs;
+  }
+  return { known: true, flowingNow: false, flatSinceMs };
 }

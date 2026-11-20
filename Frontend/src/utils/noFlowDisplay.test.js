@@ -34,4 +34,9 @@ test('buildStripSegments fills flow between stops', () => {
     ['flow', 70, 30],
   ])
   assert.deepEqual(buildStripSegments({ window: null }), [])
+  const open = buildStripSegments({
+    window: summary.window,
+    events: [{ id: '9', startedAt: '2026-10-19T08:00:00Z', endedAt: null, minutes: 120 }],
+  })
+  assert.deepEqual(open.map((s) => [s.kind, Math.round(s.widthPct)]), [['flow', 80], ['event', 20]])
 })

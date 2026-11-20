@@ -6,12 +6,13 @@ import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { actorUserIdFromReq } from '../lib/master-row-audit.js';
+import { loadLiveNudge } from '../lib/no-flow-live.js';
 import { loadNoFlowSummary, mapNoFlowEvent, NO_FLOW_EVENT_SELECT } from '../lib/no-flow-store.js';
 import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 
 const router = express.Router();
-const SOURCES = new Set(['atg_flat', 'gap', 'manual']);
+const SOURCES = new Set(['atg_flat', 'gap', 'manual', 'cargo_stop', 'flow_pause', 'atg_nudge']);
 
 function parseId(raw) {
   const v = parseInt(raw, 10);
@@ -28,13 +29,19 @@ async function withOperation(req, res) {
   return operationId;
 }
 
-/** Validate times, reason and note; reject overlap with another recorded stop. */
+/**
+ * Validate times, reason and note; reject overlap with another recorded stop.
+ * No endedAt = open stop (flow stopped now); only one can be open per voyage.
+ */
 async function parseEventBody(operationId, body, excludeEventId) {
   const tz = await loadOperationScheduleTimezone(pool, operationId);
   const startedAt = parseScheduleInstantToIso(body?.startedAt, tz);
-  const endedAt = parseScheduleInstantToIso(body?.endedAt, tz);
-  if (!startedAt || !endedAt) return { error: 'startedAt and endedAt are required' };
-  if (new Date(endedAt) <= new Date(startedAt)) return { error: 'End must be after start' };
+  const endedAt = parseScheduleInstantToIso(body?.endedAt ?? null, tz);
+  if (!startedAt || endedAt === undefined) return { error: 'A valid start time is required' };
+  if (!endedAt && new Date(startedAt).getTime() > Date.now() + 5 * 60000) {
+    return { error: 'An open stop cannot start in the future' };
+  }
+  if (endedAt && new Date(endedAt) <= new Date(startedAt)) return { error: 'End must be after start' };
   const reasonId = parseId(body?.reasonId);
   if (reasonId == null) return { error: 'reasonId is required' };
   const reason = await pool.query(
@@ -48,10 +55,13 @@ async function parseEventBody(operationId, body, excludeEventId) {
   const overlap = await pool.query(
     `SELECT 1 FROM operation_no_flow_events
      WHERE operation_id = $1 AND deleted_at IS NULL AND ($4::bigint IS NULL OR id <> $4)
-       AND started_at < $3 AND ended_at > $2 LIMIT 1`,
+       AND started_at < COALESCE($3::timestamptz, 'infinity')
+       AND COALESCE(ended_at, 'infinity') > $2 LIMIT 1`,
     [operationId, startedAt, endedAt, excludeEventId]
   );
-  if (overlap.rows.length) return { error: 'This time overlaps another recorded stop', status: 409 };
+  if (overlap.rows.length) {
+    return { error: 'This time overlaps another recorded stop (or a stop is still open)', status: 409 };
+  }
   return { startedAt, endedAt, reasonId, note, source };
 }
 
@@ -101,6 +111,19 @@ router.get('/operations/:operationId/no-flow', async (req, res) => {
   return res.json(await loadNoFlowSummary(pool, operationId));
 });
 
+/** GET /operations/:operationId/no-flow/live — open stop + ATG nudge for the operator screen. */
+router.get('/operations/:operationId/no-flow/live', async (req, res) => {
+  const operationId = await withOperation(req, res);
+  if (operationId == null) return undefined;
+  const open = await pool.query(
+    `${NO_FLOW_EVENT_SELECT} WHERE e.operation_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL`,
+    [operationId]
+  );
+  const openStop = open.rows[0] ? mapNoFlowEvent(open.rows[0]) : null;
+  const nudge = openStop ? null : await loadLiveNudge(pool, operationId);
+  return res.json({ openStop, nudge });
+});
+
 /** POST /operations/:operationId/no-flow-events */
 router.post('/operations/:operationId/no-flow-events', async (req, res) => {
   const operationId = await withOperation(req, res);
@@ -128,13 +151,38 @@ router.put('/operations/:operationId/no-flow-events/:eventId', async (req, res) 
   if (v.error) return res.status(v.status || 400).json({ error: v.error });
   await pool.query(
     `UPDATE operation_no_flow_events
-     SET started_at = $1, ended_at = $2, reason_id = $3, note = $4, updated_by = $5, updated_at = NOW()
+     SET started_at = $1, ended_at = $2::timestamptz, reason_id = $3, note = $4, updated_by = $5, updated_at = NOW(),
+         close_source = CASE WHEN $2::timestamptz IS NULL THEN NULL ELSE COALESCE(close_source, 'manual') END
      WHERE id = $6`,
     [v.startedAt, v.endedAt, v.reasonId, v.note, actorUserIdFromReq(req), eventId]
   );
   const ev = await fetchEvent(operationId, eventId);
   logEvent(req, 'update', operationId, ev);
   return res.json(ev);
+});
+
+/** POST /operations/:operationId/no-flow-events/:eventId/close — Flow resumed (end = now unless given). */
+router.post('/operations/:operationId/no-flow-events/:eventId/close', async (req, res) => {
+  const operationId = await withOperation(req, res);
+  if (operationId == null) return undefined;
+  const eventId = parseId(req.params.eventId);
+  const ev = eventId != null ? await fetchEvent(operationId, eventId) : null;
+  if (!ev) return res.status(404).json({ error: 'Stop not found' });
+  if (!ev.isOpen) return res.status(409).json({ error: 'This stop is already closed' });
+  const tz = await loadOperationScheduleTimezone(pool, operationId);
+  const endedAt = req.body?.endedAt ? parseScheduleInstantToIso(req.body.endedAt, tz) : new Date().toISOString();
+  if (!endedAt || new Date(endedAt) <= new Date(ev.startedAt)) {
+    return res.status(400).json({ error: 'End must be after the stop started' });
+  }
+  await pool.query(
+    `UPDATE operation_no_flow_events
+     SET ended_at = $1, close_source = 'manual', updated_by = $2, updated_at = NOW()
+     WHERE id = $3 AND ended_at IS NULL`,
+    [endedAt, actorUserIdFromReq(req), eventId]
+  );
+  const closed = await fetchEvent(operationId, eventId);
+  logEvent(req, 'update', operationId, closed);
+  return res.json(closed);
 });
 
 /** DELETE /operations/:operationId/no-flow-events/:eventId — soft delete */
