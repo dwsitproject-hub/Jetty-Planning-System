@@ -1,0 +1,26 @@
+.stops-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 8px 0; }
+.stops-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--color-border-medium, #d1d5db); border-radius: 10px; background: var(--color-bg-white, #fff); }
+.stops-tile__label { font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: var(--color-text-steel, #5b6675); }
+.stops-tile__value { font-size: 1.5rem; line-height: 1.2; }
+.stops-tile__value--text { font-size: 1.05rem; }
+.stops-tile__sub { font-size: 0.78rem; color: var(--color-text-steel, #64748b); min-height: 1em; }
+.stops-phase { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.stops-phase__chip { font-size: 0.78rem; padding: 3px 10px; border-radius: 999px; background: var(--color-bg-subtle, #f1f5f9); color: var(--color-text-secondary, #475569); }
+.stops-bars { display: flex; flex-direction: column; gap: 6px; }
+.stops-bars__row { display: grid; grid-template-columns: minmax(120px, 220px) minmax(0, 1fr) 96px; gap: 8px; align-items: center; font-size: 0.85rem; }
+.stops-bars__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stops-bars__track { height: 12px; background: var(--mg-track, #eceee9); border-radius: 3px; overflow: hidden; }
+.stops-bars__fill { height: 100%; border-radius: 3px; }
+.stops-bars__value { text-align: right; font-variant-numeric: tabular-nums; }
+.stops-bars__more { font-size: 0.78rem; margin: 2px 0 0; color: var(--color-text-steel, #64748b); }
+.stops-bars__legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.78rem; color: var(--color-text-steel, #5b6675); margin-top: 6px; }
+.stops-bars__legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.stops-matrix th, .stops-matrix td { white-space: nowrap; }
+.stops-matrix__num { text-align: right; font-variant-numeric: tabular-nums; }
+.stops-matrix__total td { border-top: 2px solid var(--color-border-medium, #d1d5db); }
+.stops-report__empty { padding: 18px 8px; text-align: center; }
+.stops-report__filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+@media (max-width: 640px) {
+  .stops-bars__row { grid-template-columns: minmax(0, 1fr) 90px; }
+  .stops-bars__track { grid-column: 1 / -1; order: 3; }
+}

@@ -26,6 +26,8 @@ import { mergeCargoRatesIntoRow, voyageNetRate } from '../utils/managementDashbo
 import { aggregateByProduct, productSliceFlowRate, voyagesForProduct } from '../utils/managementDashboardProduct'
 import { cargoDoneToSailFromTimeline } from '../utils/managementDashboardCargoDone'
 import { buildBerthHourSegments } from '../utils/managementDashboardBerthHours'
+import { dashboardWindowToRange } from '../utils/noFlowReportView'
+import StopHoursCard from '../components/dashboard/StopHoursCard'
 import useFeatureFlags from '../hooks/useFeatureFlags'
 import {
   cargoOperationWindowStartAt,
@@ -272,6 +274,7 @@ export default function ManagementDashboard() {
     () => periodWindow(period, { month: monthPick, from: rangeFrom, to: rangeTo }),
     [period, monthPick, rangeFrom, rangeTo]
   )
+  const stopRange = useMemo(() => dashboardWindowToRange(win), [win])
   /** Sailed off (Clearance Sailed at) in period — cohort for flow KPIs and By commodity */
   const inWinSailedOff = (r, w) =>
     !w || w.start == null || (ms(r.castOff) >= w.start && ms(r.castOff) < w.end)
@@ -953,6 +956,8 @@ export default function ManagementDashboard() {
               ) : null}
             </section>
           </div>
+
+          {features.noFlowReport ? <StopHoursCard range={stopRange} purpose={purpose} /> : null}
 
           <section className="card mgmt-sec">
             <h2 className="card__title">By Voyage</h2>
