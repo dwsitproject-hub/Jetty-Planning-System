@@ -8699,3 +8699,32 @@ tr.cargo-schedule-behind > td:first-child {
     flex-direction: row;
   }
 }
+
+/* Recorded stops drawn inside an actual Gantt bar (FEATURE_GANTT_STOPS) */
+.jetty-schedule-gantt__stops {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.jetty-schedule-gantt__stop {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 3px;
+  pointer-events: auto;
+  background: repeating-linear-gradient(135deg, #e24b4a 0 3px, #a32d2d 3px 6px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+.jetty-schedule-gantt__stop--open {
+  border-right: 2px dashed #fff;
+}
+.jetty-schedule-gantt__swatch--stop {
+  background: repeating-linear-gradient(135deg, #e24b4a 0 3px, #a32d2d 3px 6px);
+}
+.jetty-schedule-gantt__stops-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}

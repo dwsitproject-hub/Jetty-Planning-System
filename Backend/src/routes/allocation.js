@@ -26,6 +26,8 @@ import { validateBerthingTimeline } from '../lib/validate-schedule-timeline.js';
 import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { assertBerthPlanJettyAllowed } from '../lib/berth-plan-validation.js';
 import { loadDecisionsByOperation } from '../lib/sampling-commodity-qc.js';
+import { isFeatureOn } from '../lib/feature-flags.js';
+import { loadGanttStopsByOperation } from '../lib/no-flow-gantt-stops.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
@@ -493,6 +495,8 @@ function formatListRow(r) {
     recordLastUpdatedByDisplayName:
       r.record_last_updated_by_display_name ?? r.recordLastUpdatedByDisplayName ?? null,
     qcDecisions: Array.isArray(r.qc_decisions) ? r.qc_decisions : [],
+    // Only present while FEATURE_GANTT_STOPS is on; omitted from the JSON otherwise.
+    noFlowStops: Array.isArray(r.no_flow_stops) ? r.no_flow_stops : undefined,
   };
   if (row.operationId != null) {
     row.scheduleComparison = buildScheduleComparisonFromOverviewRow(row);
@@ -1032,6 +1036,10 @@ export async function buildAllocationOverviewPayload(selectedPortId) {
   for (const row of decisionOps) {
     const id = row.operation_id != null ? Number(row.operation_id) : null;
     row.qc_decisions = id != null ? decisions.get(id) || [] : [];
+  }
+  if (isFeatureOn('ganttStops')) {
+    const stopsByOp = await loadGanttStopsByOperation(pool, decisionOps.map((r) => r.operation_id));
+    for (const row of decisionOps) row.no_flow_stops = stopsByOp.get(Number(row.operation_id)) || [];
   }
   const mapRow = (r) => attachBerthingEligibility(formatListRow(r), berthingByPlan);
   const queue = [...enrichedOps, ...enrichedIncoming].map(mapRow);

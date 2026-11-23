@@ -13,6 +13,9 @@ import { buildAdjacencyAwareRowDefs } from '../utils/jettyAdjacency'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import StickyFormOverlay from './StickyFormOverlay.jsx'
 import GanttDenseBlock from './GanttDenseBlock'
+import GanttStopOverlay from './GanttStopOverlay'
+import useFeatureFlags from '../hooks/useFeatureFlags'
+import useShowGanttStops from '../hooks/useShowGanttStops'
 import InteractiveTooltip from './InteractiveTooltip'
 import {
   buildActualBlockModel,
@@ -252,6 +255,9 @@ export default function JettyScheduleGantt({
   onCreatePlan,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
+  const features = useFeatureFlags()
+  const [showStops, setShowStops] = useShowGanttStops()
+  const drawStops = features.ganttStops && showStops
   const isPlanProfile = popoutProfile === 'plan'
   const def = useMemo(() => defaultDateRangeInputsForProfile(popoutProfile), [popoutProfile])
   const [dateFrom, setDateFrom] = useState(def.from)
@@ -1358,6 +1364,10 @@ export default function JettyScheduleGantt({
             : {}
 
           const vesselBarId = sourceRow?.vesselId ?? seg.vesselId ?? undefined
+          const stopOverlay =
+            drawStops && barLayer === 'actual' ? (
+              <GanttStopOverlay stops={sourceRow?.noFlowStops} barStartMs={seg.startMs} barEndMs={seg.endMs} nowMs={nowMs} />
+            ) : null
           // Multi-jetty berthing: this bar is the spanning overlay's measurement anchor.
           const spanRef =
             Array.isArray(seg.additionalJetties) && seg.additionalJetties.filter(Boolean).length
@@ -1379,6 +1389,7 @@ export default function JettyScheduleGantt({
               {...dragProps}
             >
               {denseContent}
+              {stopOverlay}
               {handles}
             </button>
           ) : (
@@ -1392,6 +1403,7 @@ export default function JettyScheduleGantt({
               {...dragProps}
             >
               {denseContent}
+              {stopOverlay}
               {handles}
             </span>
           )
@@ -1414,6 +1426,13 @@ export default function JettyScheduleGantt({
 
   const legendContent = (
     <>
+      {features.ganttStops ? (
+        <label className="allocation-schedule__legend-item jetty-schedule-gantt__stops-toggle">
+          <input type="checkbox" checked={showStops} onChange={(e) => setShowStops(e.target.checked)} />
+          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--stop" />
+          {tAlloc('ganttShowStops', { defaultValue: 'Show stops' })}
+        </label>
+      ) : null}
       {isPlanProfile ? (
         <>
           <span className="allocation-schedule__legend-item">
