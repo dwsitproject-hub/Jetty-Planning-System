@@ -29,8 +29,7 @@ const WORKFLOW_EVENTS = [
   'operation.signoff_requested',
 ]
 const SLA_EVENTS = ['operation.sla_etc_d1', 'operation.sla_etc_breach']
-const ALERT_EVENTS = ['operation.no_flow_detected']
-const ADMIN_EVENT_DISPLAY_ORDER = [...WORKFLOW_EVENTS, ...SLA_EVENTS, ...ALERT_EVENTS]
+const ADMIN_EVENT_DISPLAY_ORDER = [...WORKFLOW_EVENTS, ...SLA_EVENTS]
 const COLLAPSE_STORAGE_KEY = 'jps_admin_notifications_collapsed'
 const SYS_HEALTH_COLLAPSE_KEY = 'system_health'
 
@@ -99,7 +98,6 @@ const EVENT_LABEL_FALLBACK = {
   'operation.signoff_requested': 'Clearance Sign Off Request',
   'operation.sla_etc_d1': 'SLA D-1 Reminder',
   'operation.sla_etc_breach': 'SLA Breach Alert',
-  'operation.no_flow_detected': 'No-flow Alert',
 }
 
 function orderEvents(apiEvents) {
