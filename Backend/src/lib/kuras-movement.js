@@ -78,7 +78,9 @@ export function evaluateKurasSegment({ remainingPct, rateMtPerHour, isOpen, rule
  *   rules: Array<object>,
  *   mtFactorFor: (commodityId: number|null) => number|null,
  * }} input
- * @returns {Map<number, { movementType: string|null, reason: object }>}
+ * @returns {Map<number, { movementType: string|null, reason: object, plannedQty: number|null,
+ *   movedBefore: number, mtFactor: number|null }>} plan, qty moved before the segment and MT factor
+ *   are passed on so the kuras start point inside the segment can be found per hour.
  */
 export function classifyKurasSegments({ lines, siQty, siProducts, rules, mtFactorFor }) {
   const plannedBy = new Map((siProducts || []).map((p) => [String(p.commodityId), p.plannedQty]));
@@ -105,15 +107,17 @@ export function classifyKurasSegments({ lines, siQty, siProducts, rules, mtFacto
       rateMtPerHour = (qty * factor) / ((endMs - startMs) / 3600000);
     }
 
-    out.set(
-      line.id,
-      evaluateKurasSegment({
+    out.set(line.id, {
+      ...evaluateKurasSegment({
         remainingPct,
         rateMtPerHour,
         isOpen: !line.endedAt,
         rule: pickKurasRule(rules, line.commodityId),
-      })
-    );
+      }),
+      plannedQty: planned != null ? Number(planned) : null,
+      movedBefore,
+      mtFactor: factor,
+    });
   }
   return out;
 }

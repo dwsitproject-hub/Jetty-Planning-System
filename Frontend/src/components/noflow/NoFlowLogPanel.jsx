@@ -5,6 +5,7 @@ import { getScheduleEntryTimeZone } from '../../utils/scheduleDateTime.js'
 import { buildStripSegments, formatStopDuration, mergeStops, reasonName } from '../../utils/noFlowDisplay.js'
 import NoFlowReasonModal from './NoFlowReasonModal.jsx'
 import NoFlowStopCards from './NoFlowStopCards.jsx'
+import StopPhasePill from './StopPhasePill.jsx'
 import { useNoFlowLog } from './useNoFlowLog.js'
 import '../../styles/no-flow.css'
 
@@ -32,7 +33,10 @@ function StopTable({ stops, readOnly, onEdit, onRemove, onClose }) {
           {stops.map((s) => (
             <tr key={s.key}>
               <td>{formatDateTimeDisplay(s.startedAt)} – {s.endedAt ? formatDateTimeDisplay(s.endedAt) : <span className="no-flow__pill no-flow__pill--live">{t('noFlowInProgress')}</span>}</td>
-              <td>{formatStopDuration(s.minutes)}</td>
+              <td>
+                {formatStopDuration(s.minutes)}
+                <StopPhasePill phase={s.phase} />
+              </td>
               <td><span className="no-flow__pill">{t(`noFlowSourceShort_${s.source}`)}</span></td>
               <td>
                 {s.kind === 'event' ? (

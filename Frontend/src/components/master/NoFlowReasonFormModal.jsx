@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import StickyFormOverlay from '../StickyFormOverlay.jsx'
 
-export const NO_FLOW_CATEGORIES = ['terminal', 'vessel', 'external', 'other']
+export const NO_FLOW_CATEGORIES = ['terminal', 'vessel', 'kuras_crew', 'external', 'other']
 
 /** Add / Edit one no-flow reason (shared by all ports). */
 export default function NoFlowReasonFormModal({ reason, saving, onSave, onClose }) {

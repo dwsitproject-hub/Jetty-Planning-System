@@ -16,7 +16,7 @@ import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageDelete, requirePageEdit, requirePageView } from '../middleware/permissions.js';
 
 const PAGE_KEY = 'master-no-flow-reasons';
-const CATEGORIES = new Set(['terminal', 'vessel', 'external', 'other']);
+const CATEGORIES = new Set(['terminal', 'vessel', 'kuras_crew', 'external', 'other']);
 const router = express.Router();
 router.use(requireAuth, requirePortScope);
 
@@ -54,7 +54,7 @@ function parseBody(body) {
   const category = String(body?.category ?? '').trim();
   if (!code || code.length > 12) return { error: 'Code is required (max 12 characters)' };
   if (!nameEn || !nameId) return { error: 'Name in English and Bahasa Indonesia are required' };
-  if (!CATEGORIES.has(category)) return { error: 'Category must be terminal, vessel, external or other' };
+  if (!CATEGORIES.has(category)) return { error: 'Category must be terminal, vessel, kuras_crew, external or other' };
   const sortOrder = Number.parseInt(body?.sortOrder, 10);
   return {
     code,

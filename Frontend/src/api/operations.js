@@ -55,6 +55,9 @@ export function mapCargoLoadLineForApi(l, tz) {
     row.manualOverrides = l.manualOverrides.map((o) => ({ tankId: o.tankId, qty: Number(o.qty) }))
     row.manualOverrideNote = String(l.manualOverrideNote ?? '')
   }
+  // Movement type (auto / normal / kuras) and kuras start (auto / none / instant); omitted keeps the stored value.
+  if (l.movementType != null && l.movementType !== '') row.movementType = l.movementType
+  if (l.kurasStart !== undefined) row.kurasStart = l.kurasStart
   return row
 }
 

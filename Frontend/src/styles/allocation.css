@@ -4551,6 +4551,15 @@ body:has(.clearance-page--embed) {
   background: #fef3c7;
   color: #92400e;
 }
+.cargo-kuras-start__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2, 8px);
+}
+.cargo-kuras-start__row > .modal__input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
 .cargo-movement-type__reason {
   margin: var(--spacing-1) 0 0;
   padding: 6px 8px;

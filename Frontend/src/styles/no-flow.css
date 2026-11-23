@@ -31,6 +31,11 @@
   background: #dcfce7;
   color: #166534;
 }
+.no-flow__pill--phase {
+  margin-left: 6px;
+  background: #e0e7ff;
+  color: #3730a3;
+}
 .no-flow__strip {
   position: relative;
   height: 20px;

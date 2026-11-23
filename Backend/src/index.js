@@ -64,6 +64,7 @@ import { csrfProtection } from './middleware/csrf.js';
 import { startNotificationEmailWorker } from './lib/notification-email-worker.js';
 import { startIntegrationWebhookWorker } from './lib/integration-webhook-worker.js';
 import { startIntegrationLogRetention } from './lib/integration-log-retention.js';
+import { featureFlags } from './lib/feature-flags.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -122,6 +123,10 @@ apiV1.use('/auth', authRoutes);
 /** Partner machine-to-machine API (x-api-key auth); mounted before CSRF since partners have no cookie session. */
 apiV1.use('/integrations', integrationsRoutes);
 apiV1.use(csrfProtection);
+/** Dark-launch switches (FEATURE_* env vars); the SPA hides each feature while it is off. */
+apiV1.get('/features', requireAuth, (_req, res) => {
+  res.json(featureFlags());
+});
 apiV1.use('/users', userRoutes);
 apiV1.use('/admin', adminSsoLinkingRoutes);
 apiV1.use('/integration-admin', integrationAdminRoutes);

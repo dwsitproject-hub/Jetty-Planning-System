@@ -2,7 +2,9 @@
  * DB side of cargo segment movement type: Kuras rules per port, manual tag carry-over
  * across segment re-saves, and auto re-tagging of a voyage after any cargo save.
  */
-import { classifyKurasSegments } from './kuras-movement.js';
+import { classifyKurasSegments, pickKurasRule } from './kuras-movement.js';
+import { findKurasStart } from './kuras-start.js';
+import { isFeatureOn } from './feature-flags.js';
 
 const toIso = (v) => (v ? new Date(v).toISOString() : null);
 
@@ -39,7 +41,8 @@ export async function loadPriorMovementTags(db, activityId) {
   if (activityId == null) return out;
   const r = await db.query(
     `SELECT started_at, movement_type, movement_type_source, movement_type_reason,
-            movement_type_set_by, movement_type_set_at
+            movement_type_set_by, movement_type_set_at,
+            kuras_started_at, kuras_start_source, kuras_start_reason, kuras_start_set_by, kuras_start_set_at
      FROM operation_cargo_load_lines WHERE operational_activity_id = $1`,
     [activityId]
   );
@@ -120,12 +123,60 @@ function mtFactorResolver(ctx) {
   return (commodityId) => (commodityId != null ? byId.get(String(commodityId)) ?? null : only);
 }
 
-/** Re-run the port rule over every auto-tagged segment of the voyage. */
+/**
+ * Auto kuras start point of each closed segment from its stored hourly buckets
+ * (only segments whose kuras start is not set by the operator).
+ */
+async function updateKurasStarts(db, lines, results, rules) {
+  const auto = lines.filter((l) => l.kurasStartSource === 'auto' && l.endedAt);
+  if (!auto.length) return 0;
+  const hoursR = await db.query(
+    `SELECT load_line_id, hour_start, hour_end, qty_moved, movement_status
+     FROM operation_hourly_cargo_progress WHERE load_line_id = ANY($1::bigint[])`,
+    [auto.map((l) => l.id)]
+  );
+  const hoursBy = new Map();
+  for (const h of hoursR.rows) {
+    const id = Number(h.load_line_id);
+    if (!hoursBy.has(id)) hoursBy.set(id, []);
+    hoursBy.get(id).push({
+      hourStart: toIso(h.hour_start),
+      hourEnd: toIso(h.hour_end),
+      qtyMoved: Number(h.qty_moved),
+      movementStatus: h.movement_status,
+    });
+  }
+  const found = auto.map((l) => {
+    const seg = results.get(l.id);
+    return findKurasStart({
+      hours: hoursBy.get(l.id) || [],
+      lineStartedAt: l.startedAt,
+      lineEndedAt: l.endedAt,
+      plannedQty: seg?.plannedQty ?? null,
+      movedBefore: seg?.movedBefore ?? 0,
+      mtFactor: seg?.mtFactor ?? null,
+      rule: pickKurasRule(rules, l.commodityId),
+    });
+  });
+  await db.query(
+    `UPDATE operation_cargo_load_lines l
+     SET kuras_started_at = v.started_at, kuras_start_reason = v.reason
+     FROM unnest($1::bigint[], $2::timestamptz[], $3::jsonb[]) AS v(id, started_at, reason)
+     WHERE l.id = v.id AND l.kuras_start_source = 'auto'`,
+    [auto.map((l) => l.id), found.map((f) => f.kurasStartedAt), found.map((f) => JSON.stringify(f.reason))]
+  );
+  return auto.length;
+}
+
+/**
+ * Re-run the port rule over every auto-tagged segment of the voyage, then (while the net-rate
+ * feature is on) the kuras start point inside each auto segment.
+ */
 export async function retagKurasForOperation(db, operationId) {
   const ctx = await loadVoyageContext(db, operationId);
   if (!ctx) return { updated: 0 };
   const linesR = await db.query(
-    `SELECT l.id, l.qty, l.started_at, l.ended_at, l.commodity_id, l.movement_type_source
+    `SELECT l.id, l.qty, l.started_at, l.ended_at, l.commodity_id, l.movement_type_source, l.kuras_start_source
      FROM operation_cargo_load_lines l
      JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id AND oa.deleted_at IS NULL
      WHERE oa.operation_id = $1 AND oa.milestone_key = 'cargo_operations'`,
@@ -139,16 +190,19 @@ export async function retagKurasForOperation(db, operationId) {
     endedAt: toIso(row.ended_at),
     commodityId: row.commodity_id != null ? Number(row.commodity_id) : null,
     source: row.movement_type_source,
+    kurasStartSource: row.kuras_start_source,
   }));
+  const rules = await loadKurasRules(db, ctx.portId);
   const results = classifyKurasSegments({
     lines,
     siQty: ctx.siQty,
     siProducts: ctx.siProducts,
-    rules: await loadKurasRules(db, ctx.portId),
+    rules,
     mtFactorFor: mtFactorResolver(ctx),
   });
+  const kurasStarts = isFeatureOn('netRate') ? await updateKurasStarts(db, lines, results, rules) : 0;
   const auto = lines.filter((l) => l.source === 'auto');
-  if (!auto.length) return { updated: 0 };
+  if (!auto.length) return { updated: 0, kurasStarts };
   await db.query(
     `UPDATE operation_cargo_load_lines l
      SET movement_type = v.movement_type, movement_type_reason = v.reason
@@ -160,7 +214,7 @@ export async function retagKurasForOperation(db, operationId) {
       auto.map((l) => JSON.stringify(results.get(l.id).reason)),
     ]
   );
-  return { updated: auto.length };
+  return { updated: auto.length, kurasStarts };
 }
 
 /** Re-tag every voyage at a port that has cargo segments (after a rule change). */

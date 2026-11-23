@@ -21,11 +21,24 @@ export function reasonName(reason, language) {
   return String(language || '').startsWith('id') ? id || en : en || id
 }
 
-/** Recorded and unexplained stops in time order: { kind: 'event'|'unexplained', ...row }. */
+/**
+ * Where a stop sits against the cargo window: 'before' first cargo start (or no cargo yet),
+ * 'after' the last cargo end, otherwise 'during'.
+ */
+export function stopPhase(stop, window) {
+  if (!window) return 'before'
+  if (stop.endedAt && ms(stop.endedAt) <= ms(window.startedAt)) return 'before'
+  if (!window.isOpen && ms(stop.startedAt) >= ms(window.endedAt)) return 'after'
+  return 'during'
+}
+
+/** Recorded and unexplained stops in time order: { kind: 'event'|'unexplained', phase, ...row }. */
 export function mergeStops(summary) {
   const events = (summary?.events || []).map((e) => ({ ...e, kind: 'event', key: `e-${e.id}` }))
   const open = (summary?.unexplained || []).map((u) => ({ ...u, kind: 'unexplained', key: `u-${u.startedAt}` }))
-  return [...events, ...open].sort((a, b) => ms(a.startedAt) - ms(b.startedAt))
+  return [...events, ...open]
+    .map((s) => ({ ...s, phase: stopPhase(s, summary?.window) }))
+    .sort((a, b) => ms(a.startedAt) - ms(b.startedAt))
 }
 
 /**

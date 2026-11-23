@@ -31,3 +31,19 @@ describe('mapCargoLoadLineForApi', () => {
     assert.equal('manualOverrideNote' in row, false)
   })
 })
+
+describe('mapCargoLoadLineForApi movement and kuras start', () => {
+  const base = { startAt: '2026-08-23T19:00:00.000Z', endAt: '2026-08-24T02:15:00.000Z', tankIds: [37] }
+
+  it('passes the movement type and kuras start through', () => {
+    const row = mapCargoLoadLineForApi({ ...base, movementType: 'kuras', kurasStart: '2026-08-24T01:00:00.000Z' }, TZ)
+    assert.equal(row.movementType, 'kuras')
+    assert.equal(row.kurasStart, '2026-08-24T01:00:00.000Z')
+  })
+
+  it('omits them when not set so the server keeps what it has', () => {
+    const row = mapCargoLoadLineForApi(base, TZ)
+    assert.equal('movementType' in row, false)
+    assert.equal('kurasStart' in row, false)
+  })
+})

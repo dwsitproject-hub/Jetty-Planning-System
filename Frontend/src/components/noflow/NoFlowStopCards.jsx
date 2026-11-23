@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay.js'
 import { formatStopDuration, reasonName } from '../../utils/noFlowDisplay.js'
+import StopPhasePill from './StopPhasePill.jsx'
 
 /** Phone layout of the stop list: one card per stop with a full-width action. */
 export default function NoFlowStopCards({ stops, readOnly, onEdit, onRemove, onClose }) {
@@ -12,7 +13,10 @@ export default function NoFlowStopCards({ stops, readOnly, onEdit, onRemove, onC
         return (
           <li key={s.key} className={`no-flow-card${needsReason ? ' no-flow-card--warn' : ''}`}>
             <div className="no-flow-card__top">
-              <strong>{formatStopDuration(s.minutes)}</strong>
+              <span>
+                <strong>{formatStopDuration(s.minutes)}</strong>
+                <StopPhasePill phase={s.phase} />
+              </span>
               <span className="no-flow__pill">{t(`noFlowSourceShort_${s.source}`)}</span>
             </div>
             <div className="no-flow-card__time">

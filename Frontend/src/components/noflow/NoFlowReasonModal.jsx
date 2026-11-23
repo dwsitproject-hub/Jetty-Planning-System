@@ -4,8 +4,7 @@ import StickyFormOverlay from '../StickyFormOverlay.jsx'
 import { createNoFlowEvent, updateNoFlowEvent } from '../../api/noFlow'
 import { normalizeForApi, utcIsoToNaiveLocal } from '../../utils/scheduleDateTime.js'
 import { reasonName } from '../../utils/noFlowDisplay.js'
-
-const CATEGORY_ORDER = ['terminal', 'vessel', 'external', 'other']
+import { NO_FLOW_CATEGORIES } from '../master/NoFlowReasonFormModal.jsx'
 const QUICK_PICKS = 4
 
 /**
@@ -24,7 +23,7 @@ export default function NoFlowReasonModal({ operationId, stop, reasons, tz, onSa
 
   const selected = reasons.find((r) => r.id === reasonId) || null
   const grouped = useMemo(
-    () => CATEGORY_ORDER.map((c) => ({ c, items: reasons.filter((r) => r.category === c) })).filter((g) => g.items.length),
+    () => NO_FLOW_CATEGORIES.map((c) => ({ c, items: reasons.filter((r) => r.category === c) })).filter((g) => g.items.length),
     [reasons]
   )
 

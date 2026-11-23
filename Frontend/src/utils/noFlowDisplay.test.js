@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildStripSegments, formatStopDuration, mergeStops, reasonName } from './noFlowDisplay.js'
+import { buildStripSegments, formatStopDuration, mergeStops, reasonName, stopPhase } from './noFlowDisplay.js'
 
 const summary = {
   window: { startedAt: '2026-10-19T00:00:00Z', endedAt: '2026-10-19T10:00:00Z' },
@@ -39,4 +39,14 @@ test('buildStripSegments fills flow between stops', () => {
     events: [{ id: '9', startedAt: '2026-10-19T08:00:00Z', endedAt: null, minutes: 120 }],
   })
   assert.deepEqual(open.map((s) => [s.kind, Math.round(s.widthPct)]), [['flow', 80], ['event', 20]])
+})
+
+test('stopPhase places stops before, during or after the cargo window', () => {
+  const w = summary.window
+  assert.equal(stopPhase({ startedAt: '2026-10-18T20:00:00Z', endedAt: '2026-10-18T23:00:00Z' }, w), 'before')
+  assert.equal(stopPhase({ startedAt: '2026-10-18T23:00:00Z', endedAt: '2026-10-19T01:00:00Z' }, w), 'during')
+  assert.equal(stopPhase({ startedAt: '2026-10-19T11:00:00Z', endedAt: null }, w), 'after')
+  assert.equal(stopPhase({ startedAt: '2026-10-19T11:00:00Z', endedAt: null }, { ...w, isOpen: true }), 'during')
+  assert.equal(stopPhase({ startedAt: '2026-10-19T11:00:00Z', endedAt: null }, null), 'before')
+  assert.deepEqual(mergeStops(summary).map((s) => s.phase), ['during', 'during'])
 })

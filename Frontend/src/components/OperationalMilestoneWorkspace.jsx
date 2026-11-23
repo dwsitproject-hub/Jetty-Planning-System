@@ -37,6 +37,9 @@ import CargoEntryHourlyPanel from './CargoEntryHourlyPanel'
 import CargoMovementTypeField from './CargoMovementTypeField'
 import NoFlowLogPanel from './noflow/NoFlowLogPanel.jsx'
 import { movementDraftFromLine } from '../utils/kurasMovementReason.js'
+import { kurasStartDraftFromLine, kurasStartPayload } from '../utils/kurasStart.js'
+import CargoKurasStartField from './CargoKurasStartField'
+import useFeatureFlags from '../hooks/useFeatureFlags.js'
 import {
   collectCargoLoadLines,
   detectCargoSiQtyMismatch,
@@ -231,6 +234,7 @@ export default function OperationalMilestoneWorkspace({
   operationTbAt = null,
 }) {
   const { t } = useTranslation('pages')
+  const features = useFeatureFlags()
   const tz = scheduleIana?.trim() || getScheduleEntryTimeZone()
   const isoOrDatetimeToLocal = useCallback((value) => utcIsoToNaiveLocal(value, tz), [tz])
   const getNowForDateTimeLocal = useCallback(() => nowToNaiveLocalInScheduleZone(tz), [tz])
@@ -357,6 +361,7 @@ export default function OperationalMilestoneWorkspace({
               tankIds: lineTankIds,
               ...commodityDraftFromPersistedLoadLine(l),
               ...movementDraftFromLine(l),
+              ...kurasStartDraftFromLine(l, isoOrDatetimeToLocal),
             }
           })
         )
@@ -526,6 +531,7 @@ export default function OperationalMilestoneWorkspace({
               ),
               ...commodityDraftFromPersistedLoadLine(l),
               ...movementDraftFromLine(l),
+              ...kurasStartDraftFromLine(l, isoOrDatetimeToLocal),
             }))
           )
         } else if (commodityType === 'Liquid' && useApi) {
@@ -1185,6 +1191,8 @@ export default function OperationalMilestoneWorkspace({
           if (showCommodityPicker && !lineCommodityId) {
             return { error: t('cargoOpsLineCommodityRequired', { n: i + 1 }) }
           }
+          const kurasStartPick = features.netRate ? kurasStartPayload(li, (v) => normalizeForApi(v, tz)) : {}
+          if (kurasStartPick.error) return { error: t(kurasStartPick.error, { n: i + 1 }) }
           built.push({
             qty: mq,
             manualQty: isMixed ? manualQty : null,
@@ -1200,6 +1208,7 @@ export default function OperationalMilestoneWorkspace({
             overrideOn,
             overrideNote,
             movementType: li.movementType || 'auto',
+            kurasStart: kurasStartPick.value,
           })
         }
         built.sort((a, b) => a._sort - b._sort || a._i - b._i)
@@ -1217,8 +1226,9 @@ export default function OperationalMilestoneWorkspace({
           }
         }
         const cargoLoadLines = built.map(
-          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId, overrideOn, overrideNote, movementType }) => {
+          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId, overrideOn, overrideNote, movementType, kurasStart }) => {
           const row = { startAt: startIso, atgQtyMode: atgQtyMode || 'auto', movementType }
+          if (kurasStart !== undefined) row.kurasStart = kurasStart
           if (endIso) row.endAt = endIso
           else row.endAt = null
           if (qty != null) row.qty = qty
@@ -2057,6 +2067,13 @@ export default function OperationalMilestoneWorkspace({
                             draft={row}
                             onChange={(movementType) => updateCargoLineDraft(lr.key, { movementType })}
                           />
+                          {features.netRate ? (
+                            <CargoKurasStartField
+                              id={`op-cargo-kuras-start-${lr.key}`}
+                              draft={row}
+                              onChange={(patch) => updateCargoLineDraft(lr.key, patch)}
+                            />
+                          ) : null}
 
                           {useCargoSessionMode && row.start ? (
                             <CargoEntryHourlyPanel
