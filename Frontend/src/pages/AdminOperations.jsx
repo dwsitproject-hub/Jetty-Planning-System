@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { fetchAdminOpsStatus, updateAdminOpsSettings } from '../api/adminOps'
+import { fetchAdminOpsStatus } from '../api/adminOps'
 import { useRbac } from '../context/RbacContext.jsx'
 import { CheckSection } from '../components/admin/AdminOpsCheckCard.jsx'
 import AdminOpsCheckPopup from '../components/admin/AdminOpsCheckPopup.jsx'
@@ -71,54 +71,43 @@ function StatusHero({ data, statusLabel, statusFilter, onFilter, t }) {
   )
 }
 
-function EmailAlertsPanel({ data, loading, settingsSaving, settingsError, onToggle, t }) {
-  const [open, setOpen] = useState(false)
+function EmailAlertsReadOnly({ data, t }) {
+  const statusHint = data.emailAlertsEnabled
+    ? data.emailAlertsActive
+      ? t('adminOpsAlertsOn')
+      : t('adminOpsAlertsPending')
+    : t('adminOpsAlertsOff')
 
   return (
-    <section className="admin-ops-section admin-ops-alerts-section">
-      <button
-        type="button"
-        className="admin-ops-section__toggle"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <span>{t('adminOpsAlertsTitle')}</span>
-        <span className="admin-ops-section__toggle-hint">
-          {data.emailAlertsEnabled
-            ? data.emailAlertsActive
-              ? t('adminOpsAlertsOn')
-              : t('adminOpsAlertsPending')
-            : t('adminOpsAlertsOff')}
-        </span>
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
-      </button>
-      {open ? (
-        <article className="card admin-ops-card admin-ops-alerts-card">
-          <label className="admin-notifications__toggle-row">
-            <input
-              type="checkbox"
-              checked={Boolean(data.emailAlertsEnabled)}
-              disabled={settingsSaving || loading}
-              onChange={(e) => onToggle(e.target.checked)}
-            />
-            <span>{t('adminOpsAlertsEnable')}</span>
-          </label>
-          <p className="text-steel admin-ops-card__summary" style={{ marginTop: 8 }}>
-            {t('adminOpsAlertsRecipient', { email: data.alertEmail || 'it-project@energi-up.com' })}
+    <section className="admin-ops-section admin-ops-alerts-section" aria-label={t('adminOpsAlertsTitle')}>
+      <article className="card admin-ops-card admin-ops-alerts-card">
+        <h2 className="admin-ops-section__title" style={{ marginTop: 0 }}>
+          {t('adminOpsAlertsTitle')}
+        </h2>
+        <p className="text-steel admin-ops-card__summary">
+          <strong>{statusHint}</strong>
+          {' — '}
+          {t('adminOpsAlertsReadOnlyHint')}
+        </p>
+        <p className="text-steel admin-ops-card__summary" style={{ marginTop: 8 }}>
+          {t('adminOpsAlertsRecipient', { email: data.alertEmail || 'it-project@energi-up.com' })}
+        </p>
+        {data.emailAlertsEnabled && !data.emailAlertsActive ? (
+          <p className="admin-notifications__hint admin-notifications__hint--warn" style={{ marginTop: 8 }}>
+            {t('adminOpsAlertsInactive')}
           </p>
-          {data.emailAlertsEnabled && !data.emailAlertsActive ? (
-            <p className="admin-notifications__hint admin-notifications__hint--warn" style={{ marginTop: 8 }}>
-              {t('adminOpsAlertsInactive')}
-            </p>
-          ) : null}
-          {data.emailAlertsEnabled && data.emailAlertsActive ? (
-            <p className="text-steel" style={{ marginTop: 8, marginBottom: 0 }}>
-              {t('adminOpsAlertsActive')}
-            </p>
-          ) : null}
-          {settingsError ? <p style={{ color: '#c00', marginTop: 8 }}>{settingsError}</p> : null}
-        </article>
-      ) : null}
+        ) : null}
+        {data.emailAlertsEnabled && data.emailAlertsActive ? (
+          <p className="text-steel" style={{ marginTop: 8, marginBottom: 0 }}>
+            {t('adminOpsAlertsActive')}
+          </p>
+        ) : null}
+        <p style={{ marginTop: 12, marginBottom: 0 }}>
+          <Link to="/admin/notifications#system-health" className="link btn btn--secondary btn--sm">
+            {t('adminOpsAlertsConfigure')}
+          </Link>
+        </p>
+      </article>
     </section>
   )
 }
@@ -130,8 +119,6 @@ export default function AdminOperations() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [settingsSaving, setSettingsSaving] = useState(false)
-  const [settingsError, setSettingsError] = useState(null)
   const [popupCheckId, setPopupCheckId] = useState(null)
   const [statusFilter, setStatusFilter] = useState(null)
 
@@ -190,29 +177,6 @@ export default function AdminOperations() {
     [sortedChecks]
   )
 
-  const handleEmailAlertsToggle = async (enabled) => {
-    setSettingsSaving(true)
-    setSettingsError(null)
-    try {
-      const settings = await updateAdminOpsSettings({ emailAlertsEnabled: enabled })
-      setData((prev) =>
-        prev
-          ? {
-              ...prev,
-              emailAlertsEnabled: settings.emailAlertsEnabled,
-              emailAlertsActive: settings.emailAlertsActive,
-              alertEmail: settings.alertEmail,
-              smtpConfigured: settings.smtpConfigured,
-            }
-          : prev
-      )
-    } catch (e) {
-      setSettingsError(e?.message || 'Failed to save alert settings')
-    } finally {
-      setSettingsSaving(false)
-    }
-  }
-
   return (
     <div className="allocation-page admin-ops-page">
       <div className="admin-ops-page-header">
@@ -255,14 +219,7 @@ export default function AdminOperations() {
             ctx={checkCtx}
           />
 
-          <EmailAlertsPanel
-            data={data}
-            loading={loading}
-            settingsSaving={settingsSaving}
-            settingsError={settingsError}
-            onToggle={handleEmailAlertsToggle}
-            t={t}
-          />
+          <EmailAlertsReadOnly data={data} t={t} />
 
           {popupCheck ? (
             <AdminOpsCheckPopup

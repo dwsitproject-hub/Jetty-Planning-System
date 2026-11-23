@@ -10,8 +10,10 @@ import { runAdminOpsChecks } from '../lib/admin-ops-checks.js';
 import {
   computeEmailAlertsActive,
   loadAdminOpsAlertSettings,
+  loadAdminOpsAlertRecipientsForApi,
   saveAdminOpsAlertSettings,
 } from '../lib/admin-ops-alert-job.js';
+import { saveAdminOpsAlertRecipients } from '../lib/admin-ops-alert-recipients.js';
 import { getEffectiveSmtpConfig, isSmtpSendingConfigured } from '../lib/smtp-config.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 
@@ -21,8 +23,11 @@ router.use(...requireAdminPageView);
 const ACTIVITY_PAGE_KEY = 'admin';
 
 async function buildSettingsResponse() {
-  const settings = await loadAdminOpsAlertSettings(pool);
-  const smtpCfg = await getEffectiveSmtpConfig(pool);
+  const [settings, recipientPayload, smtpCfg] = await Promise.all([
+    loadAdminOpsAlertSettings(pool),
+    loadAdminOpsAlertRecipientsForApi(pool),
+    getEffectiveSmtpConfig(pool),
+  ]);
   const smtpConfigured = isSmtpSendingConfigured(smtpCfg);
   return {
     emailAlertsEnabled: settings.emailAlertsEnabled,
@@ -30,6 +35,8 @@ async function buildSettingsResponse() {
     emailAlertsActive: computeEmailAlertsActive(settings, smtpConfigured),
     smtpConfigured,
     updatedAt: settings.updatedAt,
+    catalog: recipientPayload.catalog,
+    recipients: recipientPayload.recipients,
   };
 }
 
@@ -45,26 +52,48 @@ router.get('/settings', async (_req, res) => {
 router.put('/settings', async (req, res) => {
   try {
     const body = req.body || {};
-    if (body.emailAlertsEnabled == null) {
-      return res.status(400).json({ error: 'emailAlertsEnabled is required' });
+    const hasToggle = body.emailAlertsEnabled != null;
+    const hasEmail = body.alertEmail != null;
+    const hasRecipients = Array.isArray(body.recipients);
+
+    if (!hasToggle && !hasEmail && !hasRecipients) {
+      return res.status(400).json({
+        error: 'Provide emailAlertsEnabled, alertEmail, and/or recipients',
+      });
     }
-    await saveAdminOpsAlertSettings(pool, {
-      emailAlertsEnabled: Boolean(body.emailAlertsEnabled),
-      updatedBy: req.userId ?? null,
-    });
+
+    if (hasToggle || hasEmail) {
+      await saveAdminOpsAlertSettings(pool, {
+        ...(hasToggle ? { emailAlertsEnabled: Boolean(body.emailAlertsEnabled) } : {}),
+        ...(hasEmail ? { alertEmail: String(body.alertEmail) } : {}),
+        updatedBy: req.userId ?? null,
+      });
+    }
+
+    if (hasRecipients) {
+      await saveAdminOpsAlertRecipients(pool, body.recipients, req.userId ?? null);
+    }
+
+    const parts = [];
+    if (hasToggle) parts.push(body.emailAlertsEnabled ? 'alerts enabled' : 'alerts disabled');
+    if (hasEmail) parts.push('default recipient updated');
+    if (hasRecipients) parts.push('per-check recipients updated');
+
     writeActivityLog({
       pageKey: ACTIVITY_PAGE_KEY,
       action: 'update',
       entityType: 'AdminOpsAlertSettings',
       entityId: '1',
       entityLabel: 'System health email alerts',
-      summary: `System health email alerts ${body.emailAlertsEnabled ? 'enabled' : 'disabled'}`,
+      summary: `System health email: ${parts.join('; ') || 'settings saved'}`,
       actorUserId: req.userId ?? null,
     }).catch(() => {});
+
     res.json(await buildSettingsResponse());
   } catch (err) {
+    const status = err?.status === 400 ? 400 : 500;
     console.error('admin-ops/settings PUT failed:', err);
-    res.status(500).json({ error: err?.message || 'Failed to save operations alert settings' });
+    res.status(status).json({ error: err?.message || 'Failed to save operations alert settings' });
   }
 });
 

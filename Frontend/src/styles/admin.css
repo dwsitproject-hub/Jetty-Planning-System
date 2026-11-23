@@ -1513,3 +1513,32 @@
   background: #fff8e1;
   color: #f57f17;
 }
+
+.admin-notifications__syshealth-intro {
+  margin-top: 0;
+}
+
+.admin-notifications__syshealth-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--spacing-2);
+  font-size: var(--font-size-small);
+}
+
+.admin-notifications__syshealth-table th,
+.admin-notifications__syshealth-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border-light);
+  vertical-align: middle;
+}
+
+.admin-notifications__syshealth-table th {
+  font-weight: 600;
+  color: var(--color-text-steel);
+}
+
+.admin-notifications__syshealth-table .admin-notifications__input {
+  width: 100%;
+  max-width: 320px;
+}

@@ -1,43 +1,54 @@
 # System Health Dashboard — unhealthy email alerts
 
-Email **`it-project@energi-up.com`** when any System Health Dashboard check **newly becomes unhealthy**. Sending is controlled only by the **dashboard checkbox** — works on staging or production when enabled.
+Email when a System Health check **newly becomes unhealthy** (not when it is only **degraded**). Recipients are configurable per check; **ATG sync** is one alert unit **per working port**.
 
-## Dashboard toggle
+## Where to configure
 
-1. Open **Admin → System Health Dashboard** (`/admin/operations`).
-2. Enable **Email alerts when a check becomes unhealthy**.
-3. If unticked, no alert emails are sent (cron still updates state).
+1. Open **Admin → Notifications** (`/admin/notifications`) and expand **System health email alerts** (anchor `#system-health`).
+2. Enable **Enable system health email alerts**.
+3. Set **Default alert email** (fallback when a row has no specific address).
+4. Optionally set **Recipient email** on each row (ATG sync has one row per port).
 
-Requires SMTP configured under **Admin → Notifications** on that server.
+The **System Health Dashboard** (`/admin/operations`) shows read-only alert status and links here.
+
+Requires SMTP configured on the same **Admin → Notifications** page.
 
 ## Setup (staging or production)
 
 ### 1. Migration
 
+Includes `admin_ops_alert_recipients` (migration **156**):
+
 ```bash
 cd Backend && npm run migrate
 ```
 
+Docker API host after deploy:
+
+```bash
+cd /opt/jetty-planning-system && docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
+```
+
 ### 2. SMTP
 
-Configure SMTP under **Admin → Notifications** (same as SLA emails).
+Configure SMTP under **Admin → Notifications** (same as SLA / workflow emails).
 
-### 3. Enable toggle
+### 3. Enable alerts and recipients
 
-On the System Health Dashboard, tick **Email alerts when a check becomes unhealthy**.
+Use the **System health email alerts** panel on **Admin → Notifications**.
 
 ### 4. Cron (every 15 minutes)
 
-On the API host:
-
-```cron
-*/15 * * * * cd /opt/jetty-planning-system/Backend && npm run run:admin-ops-alerts >> /var/log/jps-admin-ops-alerts.log 2>&1
-```
-
-Docker-only Node:
+On the API host (ECS-DB example):
 
 ```cron
 */15 * * * * cd /opt/jetty-planning-system && docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run run:admin-ops-alerts >> /var/log/jps-admin-ops-alerts.log 2>&1
+```
+
+Bare Node on host:
+
+```cron
+*/15 * * * * cd /opt/jetty-planning-system/Backend && npm run run:admin-ops-alerts >> /var/log/jps-admin-ops-alerts.log 2>&1
 ```
 
 ### 5. Verify
@@ -52,12 +63,19 @@ tail -20 /var/log/jps-admin-ops-alerts.log
 
 | Transition | Email |
 |------------|-------|
-| healthy / degraded / unknown → **unhealthy** | Yes (if toggle on + SMTP configured) |
+| healthy / degraded / unknown → **unhealthy** | Yes (if enabled + SMTP configured) |
 | unhealthy → unhealthy | No (same incident) |
 | First cron run (no prior state) | No (seed only) |
 | Recovery to healthy | No recovery email |
+| **degraded** only | No |
 
-Checks: ATG sync, ATG data purging, Synology upload mount, DataHub API, Partner Integration API.
+**ATG sync:** each port is unhealthy when **all** enabled ATG sources for that port are stale; email goes to that port’s recipient or the default.
+
+**Other checks:** one unit each (Synology mount, ATG purge, DataHub, Partner API, etc.).
+
+Emails for multiple units in one cron tick are **grouped by recipient** (one email per address when possible).
+
+Default fallback address when a row is blank: **it-project@energi-up.com** (overridable via default email field).
 
 ## Related
 

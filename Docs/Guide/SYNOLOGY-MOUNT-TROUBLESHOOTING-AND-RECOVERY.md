@@ -459,7 +459,7 @@ Today `GET /health` returns `{ status: 'ok' }` only. A future enhancement could 
 
 ### E. System Health email alerts
 
-The **Admin → System Health Dashboard** can email **`it-project@energi-up.com`** when any check **newly becomes unhealthy** (ATG sync, purge job, Synology mount, DataHub). Enable the checkbox on the dashboard (staging or production). If unticked, no emails are sent.
+**System health email alerts** can notify per-check recipients (default **`it-project@energi-up.com`**) when a check **newly becomes unhealthy** (Synology mount, ATG sync per port, purge, DataHub, etc.). Configure under **Admin → Notifications** → **System health email alerts** (`#system-health`); the dashboard is read-only status. If disabled, no emails are sent. See [ADMIN-OPS-EMAIL-ALERTS.md](./ADMIN-OPS-EMAIL-ALERTS.md).
 
 **Cron on API host, every 15 minutes:**
 

@@ -60,7 +60,9 @@ export function buildAdminOpsAlertEmail(newlyUnhealthy, checkedAt) {
   }
   lines.push(`Open dashboard: ${dashboardUrl}`);
   lines.push('');
-  lines.push('This email was sent because email alerts are enabled on the System Health Dashboard.');
+  lines.push(
+    'This email was sent because System Health email alerts are enabled under Admin → Notification Settings.'
+  );
 
   return { subject, text: lines.join('\n') };
 }

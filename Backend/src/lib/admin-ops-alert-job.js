@@ -8,6 +8,15 @@ import {
   computeEmailAlertsActive,
   isNewlyUnhealthy,
 } from './admin-ops-alert-logic.js';
+import {
+  buildAlertUnitsFromChecks,
+  recipientRowsToMap,
+  resolveRecipientForUnit,
+} from './admin-ops-alert-units.js';
+import {
+  loadAdminOpsAlertRecipientRows,
+  loadAdminOpsAlertRecipientsForApi,
+} from './admin-ops-alert-recipients.js';
 import { isValidRecipientEmail } from './notification-email-worker.js';
 import { getFromAddress, getEffectiveSmtpConfig, isSmtpSendingConfigured } from './smtp-config.js';
 import { sendSmtpMail } from './smtp-send.js';
@@ -16,6 +25,7 @@ export { computeEmailAlertsActive } from './admin-ops-alert-logic.js';
 
 const ADVISORY_LOCK_KEY = 930932;
 const SETTINGS_ID = 1;
+const DEFAULT_ALERT_EMAIL = 'it-project@energi-up.com';
 
 /**
  * @param {import('pg').Pool | import('pg').PoolClient} db
@@ -30,14 +40,14 @@ export async function loadAdminOpsAlertSettings(db) {
   if (!row) {
     return {
       emailAlertsEnabled: false,
-      alertEmail: process.env.ADMIN_OPS_ALERT_EMAIL || 'it-project@energi-up.com',
+      alertEmail: process.env.ADMIN_OPS_ALERT_EMAIL || DEFAULT_ALERT_EMAIL,
       updatedAt: null,
       updatedBy: null,
     };
   }
   return {
     emailAlertsEnabled: Boolean(row.email_alerts_enabled),
-    alertEmail: String(row.alert_email || 'it-project@energi-up.com').trim(),
+    alertEmail: String(row.alert_email || DEFAULT_ALERT_EMAIL).trim(),
     updatedAt: row.updated_at,
     updatedBy: row.updated_by,
   };
@@ -45,22 +55,50 @@ export async function loadAdminOpsAlertSettings(db) {
 
 /**
  * @param {import('pg').Pool | import('pg').PoolClient} db
- * @param {{ emailAlertsEnabled: boolean, updatedBy?: number | null }} patch
+ * @param {{
+ *   emailAlertsEnabled?: boolean,
+ *   alertEmail?: string,
+ *   updatedBy?: number | null,
+ * }} patch
  */
 export async function saveAdminOpsAlertSettings(db, patch) {
+  const sets = [];
+  const params = [SETTINGS_ID];
+  let n = 2;
+
+  if (patch.emailAlertsEnabled != null) {
+    sets.push(`email_alerts_enabled = $${n++}`);
+    params.push(Boolean(patch.emailAlertsEnabled));
+  }
+  if (patch.alertEmail != null) {
+    const email = String(patch.alertEmail).trim();
+    if (!isValidRecipientEmail(email)) {
+      const err = new Error('Invalid default alert email');
+      err.status = 400;
+      throw err;
+    }
+    sets.push(`alert_email = $${n++}`);
+    params.push(email);
+  }
+  if (patch.updatedBy !== undefined) {
+    sets.push(`updated_by = $${n++}`);
+    params.push(patch.updatedBy ?? null);
+  }
+  sets.push('updated_at = NOW()');
+
+  if (sets.length === 1) {
+    return loadAdminOpsAlertSettings(db);
+  }
+
   const r = await db.query(
-    `UPDATE admin_ops_alert_settings SET
-       email_alerts_enabled = $2,
-       updated_by = $3,
-       updated_at = NOW()
-     WHERE id = $1
+    `UPDATE admin_ops_alert_settings SET ${sets.join(', ')} WHERE id = $1
      RETURNING email_alerts_enabled, alert_email, updated_at, updated_by`,
-    [SETTINGS_ID, Boolean(patch.emailAlertsEnabled), patch.updatedBy ?? null]
+    params
   );
   const row = r.rows[0];
   return {
     emailAlertsEnabled: Boolean(row?.email_alerts_enabled),
-    alertEmail: String(row?.alert_email || 'it-project@energi-up.com').trim(),
+    alertEmail: String(row?.alert_email || DEFAULT_ALERT_EMAIL).trim(),
     updatedAt: row?.updated_at ?? null,
     updatedBy: row?.updated_by ?? null,
   };
@@ -140,81 +178,43 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
 
   try {
     const settings = await loadAdminOpsAlertSettings(db);
+    const recipientRows = await loadAdminOpsAlertRecipientRows(db);
+    const recipientMap = recipientRowsToMap(recipientRows);
     const previousState = await loadAlertStateMap(db);
     const result = await runAdminOpsChecks(db);
     const checkedAt = result.checkedAt;
+    const units = buildAlertUnitsFromChecks(result.checks);
 
-    /** @type {Array<{ id: string, title: string, summary: string }>} */
+    /** @type {Array<{ stateKey: string, checkId: string, portId: number | null, title: string, summary: string, to: string }>} */
     const newlyUnhealthy = [];
 
-    for (const check of result.checks) {
-      const prev = previousState.get(check.id);
+    for (const unit of units) {
+      const prev = previousState.get(unit.stateKey);
       const previousStatus = prev?.lastStatus ?? null;
-      if (isNewlyUnhealthy(previousStatus, check.status)) {
-        newlyUnhealthy.push({
-          id: check.id,
-          title: check.title,
-          summary: check.summary,
-        });
-      }
+      if (!isNewlyUnhealthy(previousStatus, unit.status)) continue;
+      const to = resolveRecipientForUnit(unit, recipientMap, settings.alertEmail);
+      newlyUnhealthy.push({
+        stateKey: unit.stateKey,
+        checkId: unit.checkId,
+        portId: unit.portId,
+        title: unit.title,
+        summary: unit.summary,
+        to,
+      });
     }
 
     const smtpCfg = await getEffectiveSmtpConfig(db);
     const smtpConfigured = isSmtpSendingConfigured(smtpCfg);
     const sendGate = canSendAdminOpsAlerts(settings);
-    let emailResult = { sent: false, skipped: true, reason: sendGate.reason || 'no_new_unhealthy' };
+    /** @type {Set<string>} */
+    const sentStateKeys = new Set();
+    /** @type {object[]} */
+    const emailResults = [];
 
-    if (newlyUnhealthy.length > 0 && sendGate.ok) {
-      const to = String(settings.alertEmail || '').trim();
-      if (!isValidRecipientEmail(to)) {
-        emailResult = { sent: false, skipped: true, reason: 'invalid_recipient' };
-        if (!dryRun) {
-          await recordDelivery(db, {
-            status: 'skipped',
-            recipientEmail: to,
-            unhealthyChecks: newlyUnhealthy,
-            errorText: 'Invalid alert recipient email',
-          });
-        }
-      } else if (!smtpConfigured) {
-        emailResult = { sent: false, skipped: true, reason: 'smtp_not_configured' };
-        if (!dryRun) {
-          await recordDelivery(db, {
-            status: 'skipped',
-            recipientEmail: to,
-            unhealthyChecks: newlyUnhealthy,
-            errorText: 'SMTP not configured',
-          });
-        }
-      } else if (dryRun) {
-        emailResult = { sent: false, skipped: true, reason: 'dry_run', wouldSendTo: to };
-      } else {
-        const { subject, text } = buildAdminOpsAlertEmail(newlyUnhealthy, checkedAt);
-        const from = await getFromAddress(db);
-        try {
-          const info = await sendSmtpMail(db, { from, to, subject, text });
-          emailResult = { sent: true, to, subject, messageId: info?.messageId ?? null };
-          await recordDelivery(db, {
-            status: 'sent',
-            recipientEmail: to,
-            subject,
-            unhealthyChecks: newlyUnhealthy,
-            providerMessageId: info?.messageId ?? null,
-          });
-        } catch (err) {
-          const errorText = err?.message || String(err);
-          emailResult = { sent: false, skipped: false, failed: true, error: errorText };
-          await recordDelivery(db, {
-            status: 'failed',
-            recipientEmail: to,
-            subject,
-            unhealthyChecks: newlyUnhealthy,
-            errorText,
-          });
-        }
-      }
-    } else if (newlyUnhealthy.length > 0 && !sendGate.ok) {
-      emailResult = { sent: false, skipped: true, reason: sendGate.reason };
+    if (newlyUnhealthy.length === 0) {
+      emailResults.push({ sent: false, skipped: true, reason: 'no_new_unhealthy' });
+    } else if (!sendGate.ok) {
+      emailResults.push({ sent: false, skipped: true, reason: sendGate.reason });
       if (!dryRun) {
         await recordDelivery(db, {
           status: 'skipped',
@@ -223,11 +223,80 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
           errorText: `Alert gate: ${sendGate.reason}`,
         });
       }
+    } else if (!smtpConfigured) {
+      emailResults.push({ sent: false, skipped: true, reason: 'smtp_not_configured' });
+      if (!dryRun) {
+        await recordDelivery(db, {
+          status: 'skipped',
+          recipientEmail: settings.alertEmail,
+          unhealthyChecks: newlyUnhealthy,
+          errorText: 'SMTP not configured',
+        });
+      }
+    } else {
+      /** @type {Map<string, typeof newlyUnhealthy>} */
+      const byRecipient = new Map();
+      for (const item of newlyUnhealthy) {
+        const key = item.to || settings.alertEmail;
+        if (!byRecipient.has(key)) byRecipient.set(key, []);
+        byRecipient.get(key).push(item);
+      }
+
+      for (const [to, items] of byRecipient) {
+        if (!isValidRecipientEmail(to)) {
+          emailResults.push({ sent: false, skipped: true, reason: 'invalid_recipient', to });
+          if (!dryRun) {
+            await recordDelivery(db, {
+              status: 'skipped',
+              recipientEmail: to,
+              unhealthyChecks: items,
+              errorText: 'Invalid alert recipient email',
+            });
+          }
+          continue;
+        }
+
+        const mailChecks = items.map((c) => ({
+          id: c.stateKey,
+          title: c.title,
+          summary: c.summary,
+        }));
+
+        if (dryRun) {
+          emailResults.push({ sent: false, skipped: true, reason: 'dry_run', wouldSendTo: to, count: items.length });
+          continue;
+        }
+
+        const { subject, text } = buildAdminOpsAlertEmail(mailChecks, checkedAt);
+        const from = await getFromAddress(db);
+        try {
+          const info = await sendSmtpMail(db, { from, to, subject, text });
+          emailResults.push({ sent: true, to, subject, messageId: info?.messageId ?? null, count: items.length });
+          for (const c of items) sentStateKeys.add(c.stateKey);
+          await recordDelivery(db, {
+            status: 'sent',
+            recipientEmail: to,
+            subject,
+            unhealthyChecks: items,
+            providerMessageId: info?.messageId ?? null,
+          });
+        } catch (err) {
+          const errorText = err?.message || String(err);
+          emailResults.push({ sent: false, skipped: false, failed: true, error: errorText, to });
+          await recordDelivery(db, {
+            status: 'failed',
+            recipientEmail: to,
+            subject,
+            unhealthyChecks: items,
+            errorText,
+          });
+        }
+      }
     }
 
     if (!dryRun) {
-      for (const check of result.checks) {
-        const alertSent = newlyUnhealthy.some((c) => c.id === check.id) && emailResult.sent;
+      for (const unit of units) {
+        const alertSent = sentStateKeys.has(unit.stateKey);
         await db.query(
           `INSERT INTO admin_ops_alert_state (check_id, last_status, last_summary, last_checked_at, last_alerted_at)
            VALUES ($1, $2, $3, $4::timestamptz, NULL)
@@ -239,7 +308,7 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
                WHEN $5::boolean THEN $4::timestamptz
                ELSE admin_ops_alert_state.last_alerted_at
              END`,
-          [check.id, check.status, check.summary, checkedAt, alertSent]
+          [unit.stateKey, unit.status, unit.summary, checkedAt, alertSent]
         );
       }
     }
@@ -249,7 +318,8 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
       checkedAt,
       overall: result.overall,
       newlyUnhealthy,
-      email: emailResult,
+      emails: emailResults,
+      email: emailResults[0] ?? { sent: false, skipped: true },
       settings: {
         emailAlertsEnabled: settings.emailAlertsEnabled,
         alertEmail: settings.alertEmail,
@@ -259,3 +329,5 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
     await releaseAdvisoryLock(db);
   }
 }
+
+export { loadAdminOpsAlertRecipientsForApi };

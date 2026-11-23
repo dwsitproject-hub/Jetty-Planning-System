@@ -5,12 +5,18 @@ export function fetchAdminOpsStatus() {
   return apiGet('/admin-ops/status')
 }
 
-/** @returns {Promise<{ emailAlertsEnabled: boolean, alertEmail: string, emailAlertsActive: boolean, smtpConfigured: boolean }>} */
+/** @returns {Promise<{ emailAlertsEnabled: boolean, alertEmail: string, emailAlertsActive: boolean, smtpConfigured: boolean, recipients?: Array<{ checkId: string, portId: number | null, portName?: string, title: string, email: string }> }>} */
 export function fetchAdminOpsSettings() {
   return apiGet('/admin-ops/settings')
 }
 
-/** @param {{ emailAlertsEnabled: boolean }} body */
+/**
+ * @param {{
+ *   emailAlertsEnabled?: boolean,
+ *   alertEmail?: string,
+ *   recipients?: Array<{ checkId: string, portId?: number | null, email?: string }>,
+ * }} body
+ */
 export function updateAdminOpsSettings(body) {
   return apiPut('/admin-ops/settings', body)
 }

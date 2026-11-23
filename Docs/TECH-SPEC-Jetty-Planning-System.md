@@ -141,8 +141,8 @@ Tests: **`Backend/src/lib/resolve-master-vessel.test.js`**.
 | Method | Path | Role |
 |--------|------|------|
 | **`GET`** | **`/admin-ops/status`** | Runs all checks; returns **`checkedAt`**, **`overall`**, **`checks[]`**, plus alert settings snapshot (**`emailAlertsEnabled`**, **`emailAlertsActive`**, **`alertEmail`**, **`smtpConfigured`**) |
-| **`GET`** | **`/admin-ops/settings`** | Alert toggle + SMTP readiness |
-| **`PUT`** | **`/admin-ops/settings`** | Body **`{ emailAlertsEnabled }`** — persists toggle; activity log **`AdminOpsAlertSettings`** |
+| **`GET`** | **`/admin-ops/settings`** | Alert toggle, default **`alertEmail`**, **`recipients[]`**, **`catalog`** |
+| **`PUT`** | **`/admin-ops/settings`** | **`{ emailAlertsEnabled?, alertEmail?, recipients[] }`** — activity log **`AdminOpsAlertSettings`** |
 
 **Check registry — `Backend/src/lib/admin-ops-checks.js` (`ADMIN_OPS_CHECK_REGISTRY`):**
 
@@ -167,24 +167,27 @@ Each check returns normalized payload: **`id`**, **`title`**, **`status`** (`hea
 
 **Email alert job — `Backend/src/lib/admin-ops-alert-job.js` + `Backend/scripts/run-admin-ops-alerts.js`:**
 
-- Host cron (recommended **every 15 min**) runs checks and compares against **`admin_ops_alert_state`**.
-- Sends email to **`admin_ops_alert_settings.alert_email`** (default **`it-project@energi-up.com`**) only when a check **transitions into `unhealthy`** (not on first run seed, not while still unhealthy).
-- Gates: dashboard **`email_alerts_enabled`**, global **`NOTIFICATION_EMAIL_ENABLED`**, SMTP configured (**`getSmtpTransport`**).
+- Host cron (recommended **every 15 min**) runs checks; **`admin-ops-alert-units.js`** builds alert units (**`atg_sync`** split per working port).
+- Compares against **`admin_ops_alert_state`** using per-unit keys (e.g. **`atg_sync:port:{id}`**).
+- Sends only when a unit **transitions into `unhealthy`** (not **degraded**; not on first-run seed; not while still unhealthy). Recipient: **`admin_ops_alert_recipients`** row or default **`alert_email`**; groups by address in one tick.
+- Gates: **`email_alerts_enabled`**, global **`NOTIFICATION_EMAIL_ENABLED`**, SMTP configured (**`getSmtpTransport`**).
 - Direct **`sendMail`** (external mailbox — not SLA user-recipient model). Delivery log: **`admin_ops_alert_deliveries`**.
 
 **Database (migration):**
 
 | Migration | Objects |
 |-----------|---------|
-| **`118_admin_ops_alert_settings.sql`** | **`admin_ops_alert_settings`** (singleton **`email_alerts_enabled`**, **`alert_email`**); **`admin_ops_alert_state`** (per-check last status); **`admin_ops_alert_deliveries`** |
+| **`118_admin_ops_alert_settings.sql`** | **`admin_ops_alert_settings`** (singleton **`email_alerts_enabled`**, **`alert_email`**); **`admin_ops_alert_state`** (per-unit last status); **`admin_ops_alert_deliveries`** |
+| **`156_admin_ops_alert_recipients.sql`** | **`admin_ops_alert_recipients`** — per-check (and optional **`port_id`** for ATG) override email |
 
 **Frontend:**
 
 | Module | Role |
 |--------|------|
-| **`Frontend/src/pages/AdminOperations.jsx`** | Check cards + email alerts checkbox |
+| **`Frontend/src/pages/AdminOperations.jsx`** | Check cards + read-only alert status (link to Notifications) |
+| **`Frontend/src/pages/AdminNotifications.jsx`** | **`SystemHealthAlertsSettings`** — enable, default email, per-check recipients |
 | **`Frontend/src/pages/Admin.jsx`** | Hub card **System Health Dashboard** |
-| **`Frontend/src/api/adminOps.js`** | **`fetchAdminOpsStatus`**, **`updateAdminOpsSettings`** |
+| **`Frontend/src/api/adminOps.js`** | **`fetchAdminOpsStatus`**, **`fetchAdminOpsSettings`**, **`updateAdminOpsSettings`** |
 
 **Deploy note:** API image must include latest **`admin-ops-*`** modules — **`docker compose … up -d --build jps-api`** (restart-only leaves an old image without new checks). Install host crons: **`check-synology-mount.sh`**, **`npm run run:admin-ops-alerts`**.
 

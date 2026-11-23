@@ -17,7 +17,9 @@ import {
 import { fetchUsers } from '../api/usersApi'
 import { fetchRoles } from '../api/rbac'
 import { fetchPorts } from '../api/ports'
+import { fetchAdminOpsSettings } from '../api/adminOps'
 import DropdownMultiSelect from '../components/DropdownMultiSelect'
+import SystemHealthAlertsSettings from '../components/admin/SystemHealthAlertsSettings'
 import '../styles/allocation.css'
 import '../styles/admin.css'
 
@@ -30,12 +32,14 @@ const SLA_EVENTS = ['operation.sla_etc_d1', 'operation.sla_etc_breach']
 const ALERT_EVENTS = ['operation.no_flow_detected']
 const ADMIN_EVENT_DISPLAY_ORDER = [...WORKFLOW_EVENTS, ...SLA_EVENTS, ...ALERT_EVENTS]
 const COLLAPSE_STORAGE_KEY = 'jps_admin_notifications_collapsed'
+const SYS_HEALTH_COLLAPSE_KEY = 'system_health'
 
 function defaultCollapsedState() {
   const out = {}
   for (const ek of ADMIN_EVENT_DISPLAY_ORDER) {
     out[ek] = !(ek === 'shipment_plan.submitted' || ek === 'shipment_plan.partner_submitted')
   }
+  out[SYS_HEALTH_COLLAPSE_KEY] = true
   return out
 }
 
@@ -492,7 +496,14 @@ export default function AdminNotifications() {
   const [smtpStatus, setSmtpStatus] = useState(null)
   const [smtpTesting, setSmtpTesting] = useState(false)
   const [toast, setToast] = useState(null)
-  const [collapsed, setCollapsed] = useState(() => readCollapsedState())
+  const [collapsed, setCollapsed] = useState(() => {
+    const base = readCollapsedState()
+    if (typeof window !== 'undefined' && window.location.hash === '#system-health') {
+      return { ...base, [SYS_HEALTH_COLLAPSE_KEY]: false }
+    }
+    return base
+  })
+  const [sysHealthSettings, setSysHealthSettings] = useState(null)
 
   const toggleCollapsed = (key) => {
     setCollapsed((prev) => {
@@ -506,13 +517,15 @@ export default function AdminNotifications() {
     setErr(null)
     setLoading(true)
     try {
-      const [ev, u, ro, po, smStatus] = await Promise.all([
+      const [ev, u, ro, po, smStatus, opsSettings] = await Promise.all([
         fetchNotificationEvents(),
         fetchUsers(),
         fetchRoles(),
         fetchPorts(),
         fetchSmtpStatus(),
+        fetchAdminOpsSettings().catch(() => null),
       ])
+      setSysHealthSettings(opsSettings)
       setEvents(orderEvents(Array.isArray(ev) ? ev : []))
       setUsers(Array.isArray(u) ? u : [])
       setRoles(Array.isArray(ro) ? ro : [])
@@ -538,6 +551,14 @@ export default function AdminNotifications() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    if (loading || collapsed[SYS_HEALTH_COLLAPSE_KEY]) return
+    if (typeof window !== 'undefined' && window.location.hash === '#system-health') {
+      const el = document.getElementById('system-health')
+      el?.scrollIntoView({ block: 'start' })
+    }
+  }, [loading, collapsed])
 
   useEffect(() => {
     if (!toast) return undefined
@@ -605,6 +626,35 @@ export default function AdminNotifications() {
         <p>{t('notifAdminLoading')}</p>
       ) : (
         <>
+          <CollapsiblePanel
+            panelId="admin-notif-system-health"
+            title={t('notifAdminSysHealthTitle')}
+            summary={
+              sysHealthSettings
+                ? sysHealthSettings.emailAlertsEnabled
+                  ? sysHealthSettings.emailAlertsActive
+                    ? t('notifAdminSysHealthSummaryOn')
+                    : t('notifAdminSysHealthSummaryPending')
+                  : t('notifAdminSysHealthSummaryOff')
+                : null
+            }
+            expanded={!collapsed[SYS_HEALTH_COLLAPSE_KEY]}
+            onToggle={() => toggleCollapsed(SYS_HEALTH_COLLAPSE_KEY)}
+            t={t}
+          >
+            <SystemHealthAlertsSettings
+              smtpConfigured={Boolean(smtpStatus?.configured)}
+              onToast={setToast}
+              onSaved={async () => {
+                try {
+                  setSysHealthSettings(await fetchAdminOpsSettings())
+                } catch {
+                  /* ignore */
+                }
+              }}
+            />
+          </CollapsiblePanel>
+
           {events.map((event) => (
             <CollapsiblePanel
               key={event.eventKey}
