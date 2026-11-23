@@ -22,13 +22,11 @@ import ModalTimeDetail from '../components/dashboard/ModalTimeDetail'
 import { computeFlow, dedupSailedRows, voyageFlowRate } from '../utils/managementDashboardFlow'
 import { computeCommodityFlow, sliceMovedQty } from '../utils/managementDashboardCommodityFlow'
 import { cargoMovementEntriesForSlice } from '../utils/cargoMovementEntries'
-import { mergeCargoRatesIntoRow } from '../utils/managementDashboardCargoRate'
+import { mergeCargoRatesIntoRow, voyageNetRate } from '../utils/managementDashboardCargoRate'
 import { aggregateByProduct, productSliceFlowRate, voyagesForProduct } from '../utils/managementDashboardProduct'
-import {
-  cargoDoneToSailDisplayHours,
-  cargoDoneToSailFromTimeline,
-  idleHoursAtBerth,
-} from '../utils/managementDashboardCargoDone'
+import { cargoDoneToSailFromTimeline } from '../utils/managementDashboardCargoDone'
+import { buildBerthHourSegments } from '../utils/managementDashboardBerthHours'
+import useFeatureFlags from '../hooks/useFeatureFlags'
 import {
   cargoOperationWindowStartAt,
   computeBerthToStartCargoHours,
@@ -185,6 +183,9 @@ export default function ManagementDashboard() {
   const [rangeFrom, setRangeFrom] = useState('')
   const [rangeTo, setRangeTo] = useState('') // both set → period 'custom'
   const [purpose, setPurpose] = useState('All')
+  const [rateBasis, setRateBasis] = useState('net')
+  const features = useFeatureFlags()
+  const activeBasis = features.netRate ? rateBasis : 'gross'
   const [activeModal, setActiveModal] = useState(null)
   const [productDetail, setProductDetail] = useState(null)
   const [cargoRatesByOpId, setCargoRatesByOpId] = useState({})
@@ -337,27 +338,10 @@ export default function ManagementDashboard() {
   }, [filtered, snap])
 
   // waterfall on current-window sailed voyages
-  const wf = useMemo(() => {
-    const dd = cur.sailedRows.filter((r) => r.berth)
-    const avg = (f) => {
-      const a = dd.map(f).filter((x) => x != null)
-      return a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0
-    }
-    const wait = avg((r) => r.wait)
-    const berth = avg((r) => r.berth)
-    const pre = avg((r) => r.pre)
-    const opsH = avg((r) => r.opsH)
-    const idle = avg(idleHoursAtBerth)
-    const cargoDone = avg(cargoDoneToSailDisplayHours)
-    const segs = [
-      { n: 'Anchorage wait (TA→TB)', v: wait, cls: 'wf-wait', getVal: (r) => r.wait },
-      { n: 'Berth → start cargo', v: pre, cls: 'wf-pre', getVal: (r) => r.pre },
-      { n: 'Cargo operations', v: opsH, cls: purpose === 'Loading' ? 'wf-load' : purpose === 'Unloading' ? 'wf-disch' : 'wf-ops', getVal: (r) => r.opsH },
-      { n: 'Idle / delays at berth', v: idle, cls: 'wf-idle', getVal: idleHoursAtBerth },
-      { n: 'Cargo done → sailed off', v: cargoDone, cls: 'wf-post', getVal: cargoDoneToSailDisplayHours },
-    ]
-    return { segs, total: segs.reduce((s, x) => s + x.v, 0), n: dd.length, opsShare: berth ? (opsH / (wait + berth)) * 100 : null, dd }
-  }, [cur, purpose])
+  const wf = useMemo(
+    () => buildBerthHourSegments(cur.sailedRows.filter((r) => r.berth), { purpose, split: features.netRate }),
+    [cur, purpose, features.netRate]
+  )
 
   const leagues = useMemo(() => {
     const dd = cur.sailedRows.filter((r) => r.berth)
@@ -371,14 +355,17 @@ export default function ManagementDashboard() {
     const jetty = Object.entries(byJ).sort((a, b) => b[1].h - a[1].h)
     const seen = {}
     const rates = []
+    const net = activeBasis === 'net'
+    const rateOf = net ? voyageNetRate : voyageFlowRate
+    const hoursOf = (r) => (net ? r.voyagePumpingHours : r.voyageLoggedHours)
     cur.allSailed
-      .filter((r) => voyageFlowRate(r) != null)
+      .filter((r) => rateOf(r) != null)
       .forEach((r) => {
         const k = `${r.vessel}|${r.tb}`
-        const rate = voyageFlowRate(r)
+        const rate = rateOf(r)
         if (seen[k]) {
           seen[k].q += Number(r.voyageMovedQty) || 0
-          seen[k].ops = Math.max(seen[k].ops || 0, r.voyageLoggedHours || 0)
+          seen[k].ops = Math.max(seen[k].ops || 0, hoursOf(r) || 0)
           seen[k].rate = rate
         } else {
           seen[k] = {
@@ -386,7 +373,7 @@ export default function ManagementDashboard() {
             v: r.vessel,
             p: r.purpose,
             q: Number(r.voyageMovedQty) || 0,
-            ops: r.voyageLoggedHours,
+            ops: hoursOf(r),
             rate,
             jetty: r.jetty,
             sailedAt: r.castOff,
@@ -397,7 +384,7 @@ export default function ManagementDashboard() {
       })
     rates.sort((a, b) => (b.rate || 0) - (a.rate || 0))
     return { jetty, rates, dd }
-  }, [cur])
+  }, [cur, activeBasis])
 
   // Rows relevant to the selected period: sailed within it, or alongside at its end
   const inScope = useMemo(() => {
@@ -708,7 +695,9 @@ export default function ManagementDashboard() {
   const openRateDetail = useCallback((entry) => {
     setActiveModal({
       title: `${entry.v} — ${fmt(entry.rate, 0)} MT/h`,
-      subtitle: `${fmt(entry.q)} MT in ${fmt(entry.ops, 1)} h cargo-operations window`,
+      subtitle: activeBasis === 'net'
+        ? `${fmt(entry.q)} MT in ${fmt(entry.ops, 1)} h pumping (cargo window minus recorded stops)`
+        : `${fmt(entry.q)} MT in ${fmt(entry.ops, 1)} h cargo-operations window`,
       footer: flowFooter,
       stats: [
         { label: 'Rate', value: `${fmt(entry.rate, 0)} MT/h` },
@@ -725,7 +714,7 @@ export default function ManagementDashboard() {
       ],
       rows: [entry],
     })
-  }, [flowFooter])
+  }, [flowFooter, activeBasis])
 
   const kpiTiles = [
     {
@@ -976,6 +965,7 @@ export default function ManagementDashboard() {
               timelinesByOpId={timelinesByOpId}
               showIncoming={showProductIncoming}
               showOutgoing={showProductOutgoing}
+              netRate={features.netRate}
             />
           </section>
 
@@ -1002,8 +992,24 @@ export default function ManagementDashboard() {
               }) : <p className="text-steel">No data in period.</p>}
             </section>
             <section className="card">
-              <h2 className="card__title">Achieved cargo rate (MT/hour)</h2>
-              <p className="text-steel mgmt-sub">Moved qty ÷ operational hours, first cargo start → last end (Ops Live) · green = Loading, blue = Unloading · click a row for details</p>
+              <h2 className="card__title">
+                {features.netRate ? 'Cargo rate (MT/hour)' : 'Achieved cargo rate (MT/hour)'}
+                {features.netRate ? (
+                  <span className="mgmt-seg mgmt-seg--inline" role="group" aria-label="Rate basis">
+                    {[['net', 'Net'], ['gross', 'Gross']].map(([key, label]) => (
+                      <button key={key} type="button" className={activeBasis === key ? 'on' : ''} aria-pressed={activeBasis === key} onClick={() => setRateBasis(key)}>
+                        {label}
+                      </button>
+                    ))}
+                  </span>
+                ) : null}
+              </h2>
+              <p className="text-steel mgmt-sub">
+                {activeBasis === 'net'
+                  ? 'Net: moved qty ÷ pumping hours (cargo window minus recorded stops)'
+                  : 'Gross: moved qty ÷ operational hours, first cargo start → last end (Ops Live)'}
+                {' '}· green = Loading, blue = Unloading · click a row for details
+              </p>
               {leagues.rates.length ? leagues.rates.map((x) => {
                 const mx = leagues.rates[0].rate || 1
                 return (

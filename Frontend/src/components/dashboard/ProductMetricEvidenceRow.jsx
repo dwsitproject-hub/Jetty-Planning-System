@@ -16,6 +16,7 @@ import {
   EVIDENCE_DISPLAYED_DAYS_LABEL,
 } from '../../utils/managementDashboardMetricEvidence.js'
 import FlowEvidencePanel from './FlowEvidencePanel.jsx'
+import RateBreakdownPanel from './RateBreakdownPanel.jsx'
 
 function fmtTs(v) {
   return v ? formatDateTimeDisplay(v) : '—'
@@ -223,6 +224,8 @@ const PANEL_TITLES = {
   wait: 'Wait',
   pre: 'Berth → start cargo',
   flow: 'Achieved rate',
+  netFlow: 'Net rate and stops',
+  stopH: 'Net rate and stops',
   activeFlow: 'Active flow rate',
   cargoDoneToSail: 'Cargo done → sailed off',
 }
@@ -263,6 +266,7 @@ export default function ProductMetricEvidenceRow({
           {columnKey === 'cargoDoneToSail' ? (
             <CargoDonePanel row={row} timelineEvents={timeline} />
           ) : null}
+          {columnKey === 'netFlow' || columnKey === 'stopH' ? <RateBreakdownPanel row={row} /> : null}
         </div>
       </td>
     </tr>

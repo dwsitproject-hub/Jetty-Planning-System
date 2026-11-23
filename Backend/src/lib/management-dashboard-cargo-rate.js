@@ -7,6 +7,8 @@ import {
   loadOperationProgressContext,
   summarizeCargoProgressContext,
 } from './operational-progress.js';
+import { isFeatureOn } from './feature-flags.js';
+import { buildRateBreakdown, loadRateBreakdownInputs } from './voyage-rate-breakdown.js';
 
 /** Match Frontend productKeyFromCommodity. */
 export function productKeyFromCommodityLabel(commodity) {
@@ -228,6 +230,7 @@ export async function computeCargoRatesBulk(db, operationIds, opts = {}) {
   const ids = [...new Set((operationIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
   /** @type {Record<string, { voyage: Awaited<ReturnType<typeof computeVoyageCargoRate>>, byProduct: Record<string, Awaited<ReturnType<typeof computeProductCargoRate>>> }>} */
   const rates = {};
+  const extra = isFeatureOn('netRate') ? await loadRateBreakdownInputs(db, ids) : null;
 
   for (let i = 0; i < ids.length; i += concurrency) {
     const batch = ids.slice(i, i + concurrency);
@@ -237,6 +240,17 @@ export async function computeCargoRatesBulk(db, operationIds, opts = {}) {
           const ctx = await loadOperationProgressContext(db, id);
           if (!ctx) return [String(id), null];
           const voyage = await computeCargoRateFromContext(db, ctx, opts);
+          if (extra && voyage?.movedQty) {
+            voyage.breakdown = buildRateBreakdown({
+              movedQty: voyage.movedQty,
+              firstLoggedAt: voyage.firstLoggedAt,
+              lastLoggedAt: voyage.lastLoggedAt,
+              lines: extra.lines.get(id) || [],
+              hoursByLine: extra.hoursByLine,
+              events: extra.events.get(id) || [],
+              nowMs: opts.nowMs,
+            });
+          }
           const byProduct = {};
           for (const pk of productKeysForRates(ctx)) {
             const filtered = linesForProductRate(ctx, pk);

@@ -3,6 +3,7 @@
  */
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import { voyageActiveFlowRate, voyageFlowRate } from '../../utils/managementDashboardFlow.js'
+import { voyageNetRate } from '../../utils/managementDashboardCargoRate.js'
 import { voyageMovedQtyLines, voyageMovedQtySortValue } from '../../utils/managementDashboardProduct.js'
 import { sortModalRows } from '../../utils/widgetDetailSort.js'
 import {
@@ -21,8 +22,9 @@ import {
   lineScaleMax,
 } from '../../utils/hourlyRateBands.js'
 
-const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'activeFlow', 'cargoDoneToSail']
-const COL_SPAN = 12
+const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'netFlow', 'stopH', 'activeFlow', 'cargoDoneToSail']
+const BASE_COL_SPAN = 12
+const NET_COL_SPAN = 2
 
 function fmtNum(n, d = 1) {
   return n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d })
@@ -87,6 +89,8 @@ const VOYAGE_COLUMNS = [
   { key: 'wait', label: 'Wait', align: 'right', sortValue: (r) => r.wait },
   { key: 'pre', label: 'Berth → start cargo', align: 'right', sortValue: (r) => r.pre },
   { key: 'flow', label: 'Achieved rate', align: 'right', sortValue: (r) => voyageFlowRate(r) },
+  { key: 'netFlow', label: 'Net rate', align: 'right', netOnly: true, sortValue: (r) => voyageNetRate(r) },
+  { key: 'stopH', label: 'Stop h', align: 'right', netOnly: true, sortValue: (r) => r.stopHoursTotal ?? null },
   { key: 'activeFlow', label: 'Active rate', align: 'right', sortValue: (r) => voyageActiveFlowRate(r) },
   { key: 'hoursByRate', label: 'Hours by rate', sortValue: (r) => fastShare(r.hourlyProfile) },
   { key: 'cargoDoneToSail', label: 'Cargo done → sailed off', align: 'right', sortValue: (r) => r.cargoDoneToSailH },
@@ -99,9 +103,16 @@ const VOYAGE_COLUMNS = [
   { key: 'status', label: 'Status', sortValue: statusLabel },
 ]
 
+/** Columns for the view: the net-rate columns and the Gross label only appear with the feature on. */
+function columnsFor(netRate) {
+  if (!netRate) return VOYAGE_COLUMNS.filter((c) => !c.netOnly)
+  return VOYAGE_COLUMNS.map((c) => (c.key === 'flow' ? { ...c, label: 'Gross rate' } : c))
+}
+
 /** Tail-column layout: spacing + separators so durations/dates do not run together. */
 const VOYAGE_COLUMN_UI = {
   flow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
+  netFlow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
   activeFlow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
   cargoDoneToSail: {
     thClass: 'mgmt-voyage-th--cargo-done',
@@ -176,12 +187,15 @@ function VoyageBlock({
   rateView,
   onRateViewChange,
   profilesLoading,
+  netRate,
 }) {
+  const columns = useMemo(() => columnsFor(netRate), [netRate])
+  const colSpan = BASE_COL_SPAN + (netRate ? NET_COL_SPAN : 0)
   const [sort, setSort] = useState(null)
   const onSort = useCallback((key) => {
     setSort((prev) => (prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
   }, [])
-  const sorted = useMemo(() => sortModalRows(rows, VOYAGE_COLUMNS, sort), [rows, sort])
+  const sorted = useMemo(() => sortModalRows(rows, columns, sort), [rows, sort])
   const scaleMax = useMemo(() => lineScaleMax(rows), [rows])
 
   if (!sorted.length) {
@@ -226,7 +240,7 @@ function VoyageBlock({
         <table className="data-table mgmt-product-voyage-table">
           <thead>
             <tr>
-              {VOYAGE_COLUMNS.map((column) =>
+              {columns.map((column) =>
                 column.key === 'hoursByRate' ? (
                   <HoursByRateHeader
                     key={column.key}
@@ -246,6 +260,7 @@ function VoyageBlock({
               const rk = String(r.id)
               const rate = voyageFlowRate(r)
               const activeRate = voyageActiveFlowRate(r)
+              const netRateValue = voyageNetRate(r)
               const show = expanded?.rowKey === rk && METRIC_COLUMNS.includes(expanded.columnKey)
               const showRateBreakdown = expanded?.rowKey === rk && expanded.columnKey === 'hoursByRate'
               return (
@@ -262,6 +277,12 @@ function VoyageBlock({
                     <td {...metricProps(rk, 'wait')}>{fmtMgmtDurationDays(r.wait)}</td>
                     <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>
                     <td {...metricProps(rk, 'flow')}>{rate == null ? '—' : `${fmtNum(rate, 1)} MT/h`}</td>
+                    {netRate ? (
+                      <>
+                        <td {...metricProps(rk, 'netFlow')}>{netRateValue == null ? '—' : `${fmtNum(netRateValue, 1)} MT/h`}</td>
+                        <td {...metricProps(rk, 'stopH')}>{r.stopHoursTotal == null ? '—' : `${fmtNum(r.stopHoursTotal, 1)} h`}</td>
+                      </>
+                    ) : null}
                     <td {...metricProps(rk, 'activeFlow')}>{activeRate == null ? '—' : `${fmtNum(activeRate, 1)} MT/h`}</td>
                     <td
                       {...(r.hourlyProfile ? metricProps(rk, 'hoursByRate') : {})}
@@ -286,11 +307,11 @@ function VoyageBlock({
                       columnKey={expanded.columnKey}
                       opDetailsById={opDetailsById}
                       timelinesByOpId={timelinesByOpId}
-                      colSpan={COL_SPAN}
+                      colSpan={colSpan}
                     />
                   ) : null}
                   {showRateBreakdown ? (
-                    <HourlyRateBreakdownRow row={r} view={rateView} scaleMax={scaleMax} colSpan={COL_SPAN} />
+                    <HourlyRateBreakdownRow row={r} view={rateView} scaleMax={scaleMax} colSpan={colSpan} />
                   ) : null}
                 </Fragment>
               )
@@ -308,6 +329,7 @@ export default function VoyageDrilldownTable({
   timelinesByOpId,
   showIncoming = true,
   showOutgoing = true,
+  netRate = false,
 }) {
   const allRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows])
   const [commodities, setCommodities] = useState(() => new Set())
@@ -358,6 +380,7 @@ export default function VoyageDrilldownTable({
     rateView,
     onRateViewChange: setRateView,
     profilesLoading,
+    netRate,
   }
 
   return (
