@@ -6,7 +6,7 @@ const iso = (h) => new Date(Date.parse('2026-11-14T00:00:00Z') + h * 3600000).to
 const line = (id, s, e, qty, extra = {}) => ({ id, startedAt: iso(s), endedAt: e == null ? null : iso(e), qty, ...extra });
 const base = { firstLoggedAt: iso(0), lastLoggedAt: iso(10), nowMs: Date.parse(iso(20)) };
 
-test('net rate leaves out stops during cargo; gross stays over the whole window', () => {
+test('without kuras everything is pumped; the active rate is moved ÷ running hours and stops do not change it', () => {
   const r = buildRateBreakdown({
     ...base,
     movedQty: 800,
@@ -14,14 +14,13 @@ test('net rate leaves out stops during cargo; gross stays over the whole window'
     events: [{ startedAt: iso(3), endedAt: iso(5), reasonCode: 'OVT', category: 'terminal' }],
   });
   assert.equal(r.stopHours.during, 2);
-  assert.equal(r.pumpingHours, 8);
-  assert.equal(r.netRateMtH, 100);
-  assert.equal(r.normal.rateMtH, 100);
+  assert.deepEqual(r.normal, { qty: 800, hours: 10, rateMtH: 80 });
+  assert.equal(r.kuras.qty, 0);
   assert.equal(r.kuras.rateMtH, null);
   assert.equal(r.kuras.startedAt, null);
 });
 
-test('stops before and after the cargo window are counted apart and do not change net rate', () => {
+test('stops before and after the cargo window are counted apart from downtime during cargo', () => {
   const r = buildRateBreakdown({
     ...base,
     movedQty: 500,
@@ -32,10 +31,9 @@ test('stops before and after the cargo window are counted apart and do not chang
     ],
   });
   assert.deepEqual(r.stopHours, { before: 3, during: 0, after: 1, total: 4 });
-  assert.equal(r.netRateMtH, 50);
 });
 
-test('a kuras start splits one entry into normal and kuras rates (hourly qty)', () => {
+test('a kuras start splits one entry into pumped and cleaned quantities and rates (hourly qty)', () => {
   const hourly = Array.from({ length: 10 }, (_, i) => ({
     hourStart: iso(i), hourEnd: iso(i + 1), qtyMoved: i < 6 ? 100 : 20,
   }));
@@ -55,19 +53,20 @@ test('a kuras start splits one entry into normal and kuras rates (hourly qty)', 
   assert.equal(r.normal.rateMtH, 100);
 });
 
-test('without hourly data the kuras share follows time share; stops inside kuras are left out', () => {
+test('without hourly data the kuras share follows time share', () => {
   const r = buildRateBreakdown({
     ...base,
     movedQty: 1000,
     lines: [line(1, 0, 10, 1000, { kurasStartedAt: iso(5) })],
-    events: [{ startedAt: iso(6), endedAt: iso(7), reasonCode: 'CCB', category: 'kuras_crew' }],
+    events: [],
   });
   assert.equal(r.kuras.qty, 500);
-  assert.equal(r.kuras.hours, 4);
-  assert.equal(r.kuras.rateMtH, 125);
+  assert.equal(r.kuras.hours, 5);
+  assert.equal(r.kuras.rateMtH, 100);
+  assert.equal(r.normal.qty, 500);
 });
 
-test('a whole entry tagged Kuras is all kuras', () => {
+test('a whole entry tagged Kuras is all kuras; pumped plus cleaned equals moved', () => {
   const r = buildRateBreakdown({
     ...base,
     movedQty: 1000,
@@ -78,11 +77,23 @@ test('a whole entry tagged Kuras is all kuras', () => {
   assert.equal(r.kuras.qty, 300);
   assert.equal(r.kuras.hours, 4);
   assert.equal(r.normal.hours, 6);
+  assert.equal(r.normal.qty + r.kuras.qty, 1000);
 });
 
-test('no moved qty or window gives empty rates', () => {
+test('gaps between entries are not running hours', () => {
+  const r = buildRateBreakdown({
+    ...base,
+    movedQty: 1000,
+    lines: [line(1, 0, 4, 600), line(2, 6, 10, 400)],
+    events: [],
+  });
+  assert.equal(r.normal.hours, 8);
+  assert.equal(r.normal.rateMtH, 125);
+});
+
+test('no moved qty or window gives empty figures', () => {
   const r = buildRateBreakdown({ movedQty: null, firstLoggedAt: null, lastLoggedAt: null, lines: [], events: [] });
-  assert.equal(r.netRateMtH, null);
-  assert.equal(r.pumpingHours, null);
+  assert.equal(r.normal.rateMtH, null);
+  assert.equal(r.kuras.rateMtH, null);
   assert.equal(r.stopHours.total, 0);
 });

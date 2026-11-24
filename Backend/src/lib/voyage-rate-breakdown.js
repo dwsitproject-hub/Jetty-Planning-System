@@ -1,12 +1,13 @@
 /**
- * Per-voyage rate breakdown behind the net-rate feature (Tj Pura style):
- *  - gross rate: moved qty ÷ first cargo start → last cargo end (the existing "Achieved rate")
- *  - net rate:   moved qty ÷ that window minus recorded stops during cargo
- *  - normal / kuras rate: moved qty split by the kuras start point (or a whole entry tagged
- *    Kuras), each ÷ its own pumping hours (its spans minus stops that fall inside them)
+ * Per-voyage breakdown behind the Pumped / Cleaned-Kuras / Total downtime columns (Tj Pura style):
+ *  - pumped (normal): moved qty outside kuras, ÷ the hours entries were running outside kuras
+ *    = the Active rate
+ *  - cleaned (kuras): moved qty split off at the kuras start point (or a whole entry tagged
+ *    Kuras), ÷ the hours entries were running in kuras = the Cleaning / Kuras rate
+ *  - stop hours before / during / after cargo; "total downtime" is the during-cargo part
  * All figures are MT; the qty split uses line-qty shares so the unit of the SI does not matter.
  */
-import { pumpingHours, summarizeStops } from './no-flow-metrics.js';
+import { summarizeStops } from './no-flow-metrics.js';
 
 const HOUR_MS = 3600000;
 const ms = (v) => (v == null ? NaN : new Date(v).getTime());
@@ -25,18 +26,6 @@ function unionSpans(spans) {
 }
 
 const spanHours = (spans) => spans.reduce((t, [s, e]) => t + (e - s), 0) / HOUR_MS;
-
-/** Hours of recorded stops that fall inside the spans (stops do not overlap each other). */
-function stopHoursInside(events, spans, nowMs) {
-  let total = 0;
-  for (const ev of events) {
-    const s = ms(ev.startedAt);
-    const e = ev.endedAt ? ms(ev.endedAt) : nowMs;
-    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
-    for (const [a, b] of spans) total += Math.max(0, Math.min(e, b) - Math.max(s, a));
-  }
-  return total / HOUR_MS;
-}
 
 const lineQty = (l) => Number(l.qty) || Number(l.manualQty) || 0;
 
@@ -84,12 +73,9 @@ function kurasQtyOfLine(line, split, hourly) {
  */
 export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, lines = [], hoursByLine = new Map(), events = [], nowMs = Date.now() }) {
   const moved = Number(movedQty) || 0;
-  const startMs = ms(firstLoggedAt);
   const endMs = ms(lastLoggedAt);
-  const windowHours = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs ? (endMs - startMs) / HOUR_MS : 0;
 
   const stops = summarizeStops({ events, cargoWindow: firstLoggedAt ? { startedAt: firstLoggedAt, endedAt: lastLoggedAt } : null, nowMs });
-  const pumping = pumpingHours(windowHours, stops.byPhase.during);
 
   const normalSpans = [];
   const kurasSpans = [];
@@ -113,10 +99,8 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
   const kurasShare = totalLineQty > 0 ? Math.min(1, kurasLineQty / totalLineQty) : 0;
   const kurasQty = moved * kurasShare;
   const normalQty = moved - kurasQty;
-  const kurasUnion = unionSpans(kurasSpans);
-  const normalUnion = unionSpans(normalSpans);
-  const kurasHours = Math.max(0, spanHours(kurasUnion) - stopHoursInside(events, kurasUnion, nowMs));
-  const normalHours = Math.max(0, spanHours(normalUnion) - stopHoursInside(events, normalUnion, nowMs));
+  const kurasHours = spanHours(unionSpans(kurasSpans));
+  const normalHours = spanHours(unionSpans(normalSpans));
 
   return {
     stopHours: {
@@ -126,8 +110,6 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
       total: round2(stops.totalHours) ?? 0,
     },
     stopCount: stops.stops.length,
-    pumpingHours: pumping == null ? null : round2(pumping),
-    netRateMtH: pumping == null ? null : rate(moved, pumping),
     normal: { qty: round2(normalQty), hours: round2(normalHours), rateMtH: rate(normalQty, normalHours) },
     kuras: {
       qty: round2(kurasQty),

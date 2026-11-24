@@ -3,7 +3,6 @@
  */
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import { voyageActiveFlowRate, voyageFlowRate } from '../../utils/managementDashboardFlow.js'
-import { voyageNetRate } from '../../utils/managementDashboardCargoRate.js'
 import { voyageMovedQtyLines, voyageMovedQtySortValue } from '../../utils/managementDashboardProduct.js'
 import { sortModalRows } from '../../utils/widgetDetailSort.js'
 import {
@@ -22,9 +21,7 @@ import {
   lineScaleMax,
 } from '../../utils/hourlyRateBands.js'
 
-const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'netFlow', 'stopH', 'activeFlow', 'cargoDoneToSail']
-const BASE_COL_SPAN = 12
-const NET_COL_SPAN = 2
+const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'activeFlow', 'pumped', 'kurasQty', 'kurasRate', 'downtime', 'cargoDoneToSail']
 
 function fmtNum(n, d = 1) {
   return n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d })
@@ -81,17 +78,24 @@ function MovedQtyCell({ row }) {
   )
 }
 
+const positive = (v) => (v != null && Number.isFinite(v) && v > 0 ? v : null)
+
+/** Active rate: pumped ÷ running hours outside kuras when the breakdown is on, else moved ÷ running hours. */
+const activeRateOf = (r) => (r.rateBreakdown ? positive(r.rateBreakdown.normal?.rateMtH) : voyageActiveFlowRate(r))
+
 const VOYAGE_COLUMNS = [
   { key: 'vessel', label: 'Vessel', sortValue: (r) => r.vessel || '' },
   { key: 'jetty', label: 'Jetty', sortValue: (r) => r.jetty || '' },
   { key: 'commodity', label: 'Commodity', sortValue: (r) => r.commodity || '' },
   { key: 'moved', label: 'Moved (MT)', align: 'right', sortValue: voyageMovedQtySortValue },
+  { key: 'pumped', label: 'Pumped (MT)', align: 'right', sortValue: (r) => r.rateBreakdown?.normal?.qty ?? null },
   { key: 'wait', label: 'Wait', align: 'right', sortValue: (r) => r.wait },
   { key: 'pre', label: 'Berth → start cargo', align: 'right', sortValue: (r) => r.pre },
   { key: 'flow', label: 'Achieved rate', align: 'right', sortValue: (r) => voyageFlowRate(r) },
-  { key: 'netFlow', label: 'Net rate', align: 'right', netOnly: true, sortValue: (r) => voyageNetRate(r) },
-  { key: 'stopH', label: 'Stop h', align: 'right', netOnly: true, sortValue: (r) => r.stopHoursTotal ?? null },
-  { key: 'activeFlow', label: 'Active rate', align: 'right', sortValue: (r) => voyageActiveFlowRate(r) },
+  { key: 'activeFlow', label: 'Active rate', align: 'right', sortValue: activeRateOf },
+  { key: 'kurasQty', label: 'Cleaned / Kuras (MT)', align: 'right', sortValue: (r) => r.rateBreakdown?.kuras?.qty ?? null },
+  { key: 'kurasRate', label: 'Cleaning / Kuras rate', align: 'right', sortValue: (r) => positive(r.rateBreakdown?.kuras?.rateMtH) },
+  { key: 'downtime', label: 'Total downtime (h)', align: 'right', sortValue: (r) => r.rateBreakdown?.stopHours?.during ?? null },
   { key: 'hoursByRate', label: 'Hours by rate', sortValue: (r) => fastShare(r.hourlyProfile) },
   { key: 'cargoDoneToSail', label: 'Cargo done → sailed off', align: 'right', sortValue: (r) => r.cargoDoneToSailH },
   {
@@ -103,17 +107,21 @@ const VOYAGE_COLUMNS = [
   { key: 'status', label: 'Status', sortValue: statusLabel },
 ]
 
-/** Columns for the view: the net-rate columns and the Gross label only appear with the feature on. */
-function columnsFor(netRate) {
-  if (!netRate) return VOYAGE_COLUMNS.filter((c) => !c.netOnly)
-  return VOYAGE_COLUMNS.map((c) => (c.key === 'flow' ? { ...c, label: 'Gross rate' } : c))
+const COLUMN_ORDER = {
+  standard: ['vessel', 'jetty', 'commodity', 'moved', 'wait', 'pre', 'flow', 'activeFlow', 'hoursByRate', 'cargoDoneToSail', 'dateCompleted', 'status'],
+  /** Pumped / cleaned / downtime view (net-rate switch on): the rate columns sit together. */
+  breakdown: ['vessel', 'jetty', 'commodity', 'pumped', 'flow', 'activeFlow', 'kurasQty', 'kurasRate', 'downtime', 'wait', 'pre', 'hoursByRate', 'cargoDoneToSail', 'dateCompleted', 'status'],
+}
+
+function columnsFor(breakdown) {
+  return COLUMN_ORDER[breakdown ? 'breakdown' : 'standard'].map((key) => VOYAGE_COLUMNS.find((c) => c.key === key))
 }
 
 /** Tail-column layout: spacing + separators so durations/dates do not run together. */
 const VOYAGE_COLUMN_UI = {
   flow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
-  netFlow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
   activeFlow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
+  kurasRate: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
   cargoDoneToSail: {
     thClass: 'mgmt-voyage-th--cargo-done',
     tdClass: 'mgmt-voyage-col--cargo-done',
@@ -187,15 +195,15 @@ function VoyageBlock({
   rateView,
   onRateViewChange,
   profilesLoading,
-  netRate,
+  breakdown,
 }) {
-  const columns = useMemo(() => columnsFor(netRate), [netRate])
-  const colSpan = BASE_COL_SPAN + (netRate ? NET_COL_SPAN : 0)
+  const columns = useMemo(() => columnsFor(breakdown), [breakdown])
+  const colSpan = columns.length
   const [sort, setSort] = useState(null)
   const onSort = useCallback((key) => {
     setSort((prev) => (prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
   }, [])
-  const sorted = useMemo(() => sortModalRows(rows, columns, sort), [rows, sort])
+  const sorted = useMemo(() => sortModalRows(rows, columns, sort), [rows, columns, sort])
   const scaleMax = useMemo(() => lineScaleMax(rows), [rows])
 
   if (!sorted.length) {
@@ -259,47 +267,53 @@ function VoyageBlock({
             {sorted.map((r) => {
               const rk = String(r.id)
               const rate = voyageFlowRate(r)
-              const activeRate = voyageActiveFlowRate(r)
-              const netRateValue = voyageNetRate(r)
+              const activeRate = activeRateOf(r)
+              const bd = r.rateBreakdown
               const show = expanded?.rowKey === rk && METRIC_COLUMNS.includes(expanded.columnKey)
               const showRateBreakdown = expanded?.rowKey === rk && expanded.columnKey === 'hoursByRate'
+              const num = (v, d, unit) => (v == null ? '—' : `${fmtNum(v, d)}${unit}`)
+              const cells = {
+                vessel: (
+                  <td>
+                    <b>{r.vessel}</b>
+                    <br />
+                    <span className="text-steel" style={{ fontSize: 11 }}>{r.code}</span>
+                  </td>
+                ),
+                jetty: <td>{r.jetty || '—'}</td>,
+                commodity: <td><CommodityCell row={r} /></td>,
+                moved: <td className="mgmt-r mgmt-moved"><MovedQtyCell row={r} /></td>,
+                pumped: <td {...metricProps(rk, 'pumped')}>{num(bd?.normal?.qty, 0, '')}</td>,
+                wait: <td {...metricProps(rk, 'wait')}>{fmtMgmtDurationDays(r.wait)}</td>,
+                pre: <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>,
+                flow: <td {...metricProps(rk, 'flow')}>{num(rate, 1, ' MT/h')}</td>,
+                activeFlow: <td {...metricProps(rk, 'activeFlow')}>{num(activeRate, 1, ' MT/h')}</td>,
+                kurasQty: <td {...metricProps(rk, 'kurasQty')}>{num(bd?.kuras?.qty, 0, '')}</td>,
+                kurasRate: <td {...metricProps(rk, 'kurasRate')}>{num(positive(bd?.kuras?.rateMtH), 1, ' MT/h')}</td>,
+                downtime: <td {...metricProps(rk, 'downtime')}>{num(bd?.stopHours?.during, 1, ' h')}</td>,
+                hoursByRate: (
+                  <td
+                    {...(r.hourlyProfile ? metricProps(rk, 'hoursByRate') : {})}
+                    className={`mgmt-voyage-col--rate-hours${r.hourlyProfile ? ' mgmt-product-voyage-metric-cell' : ''}${showRateBreakdown ? ' mgmt-product-voyage-metric-cell--open' : ''}`}
+                    title={r.hourlyProfile ? 'Show hours by rate breakdown' : undefined}
+                  >
+                    <HourlyRateCell
+                      profile={r.hourlyProfile}
+                      view={rateView}
+                      scaleMax={scaleMax}
+                      loading={profilesLoading}
+                      manual={r.cargoRateSource === 'manual'}
+                    />
+                  </td>
+                ),
+                cargoDoneToSail: <td {...metricProps(rk, 'cargoDoneToSail')}>{fmtMgmtDurationHours(r.cargoDoneToSailH)}</td>,
+                dateCompleted: <td className={voyageTdClass('dateCompleted')}>{fmtMgmtCastOffDate(r.castOff)}</td>,
+                status: <td>{statusChip(r)}</td>,
+              }
               return (
                 <Fragment key={rk}>
                   <tr>
-                    <td>
-                      <b>{r.vessel}</b>
-                      <br />
-                      <span className="text-steel" style={{ fontSize: 11 }}>{r.code}</span>
-                    </td>
-                    <td>{r.jetty || '—'}</td>
-                    <td><CommodityCell row={r} /></td>
-                    <td className="mgmt-r mgmt-moved"><MovedQtyCell row={r} /></td>
-                    <td {...metricProps(rk, 'wait')}>{fmtMgmtDurationDays(r.wait)}</td>
-                    <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>
-                    <td {...metricProps(rk, 'flow')}>{rate == null ? '—' : `${fmtNum(rate, 1)} MT/h`}</td>
-                    {netRate ? (
-                      <>
-                        <td {...metricProps(rk, 'netFlow')}>{netRateValue == null ? '—' : `${fmtNum(netRateValue, 1)} MT/h`}</td>
-                        <td {...metricProps(rk, 'stopH')}>{r.stopHoursTotal == null ? '—' : `${fmtNum(r.stopHoursTotal, 1)} h`}</td>
-                      </>
-                    ) : null}
-                    <td {...metricProps(rk, 'activeFlow')}>{activeRate == null ? '—' : `${fmtNum(activeRate, 1)} MT/h`}</td>
-                    <td
-                      {...(r.hourlyProfile ? metricProps(rk, 'hoursByRate') : {})}
-                      className={`mgmt-voyage-col--rate-hours${r.hourlyProfile ? ' mgmt-product-voyage-metric-cell' : ''}${showRateBreakdown ? ' mgmt-product-voyage-metric-cell--open' : ''}`}
-                      title={r.hourlyProfile ? 'Show hours by rate breakdown' : undefined}
-                    >
-                      <HourlyRateCell
-                        profile={r.hourlyProfile}
-                        view={rateView}
-                        scaleMax={scaleMax}
-                        loading={profilesLoading}
-                        manual={r.cargoRateSource === 'manual'}
-                      />
-                    </td>
-                    <td {...metricProps(rk, 'cargoDoneToSail')}>{fmtMgmtDurationHours(r.cargoDoneToSailH)}</td>
-                    <td className={voyageTdClass('dateCompleted')}>{fmtMgmtCastOffDate(r.castOff)}</td>
-                    <td>{statusChip(r)}</td>
+                    {columns.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
                   </tr>
                   {show ? (
                     <ProductMetricEvidenceRow
@@ -329,7 +343,7 @@ export default function VoyageDrilldownTable({
   timelinesByOpId,
   showIncoming = true,
   showOutgoing = true,
-  netRate = false,
+  breakdown = false,
 }) {
   const allRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows])
   const [commodities, setCommodities] = useState(() => new Set())
@@ -380,7 +394,7 @@ export default function VoyageDrilldownTable({
     rateView,
     onRateViewChange: setRateView,
     profilesLoading,
-    netRate,
+    breakdown,
   }
 
   return (

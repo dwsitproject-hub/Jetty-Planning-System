@@ -74,13 +74,3 @@ export function summarizeStops({ events = [], cargoWindow = null, range = {}, no
   }
   return out;
 }
-
-/**
- * Hours a voyage was actually pumping: cargo window minus stops during cargo.
- * Never below zero, so overlapping bad data cannot produce a negative divisor.
- */
-export function pumpingHours(cargoWindowHours, stopHoursDuring) {
-  const w = Number(cargoWindowHours);
-  if (!Number.isFinite(w) || w <= 0) return null;
-  return Math.max(0, w - (Number(stopHoursDuring) || 0));
-}

@@ -27,7 +27,7 @@ export default function RateBreakdownPanel({ row }) {
         ))}
       </div>
       <p className="mgmt-product-metric-evidence__note text-steel">
-        Net rate leaves out stops recorded during cargo. Normal and kuras rates split the moved quantity at the kuras start of each entry.
+        Pumped and Cleaned / Kuras split the moved quantity at the kuras start of each entry, or by whole entries tagged Kuras. Total downtime counts only stops between the first cargo start and the last cargo end.
       </p>
     </>
   )

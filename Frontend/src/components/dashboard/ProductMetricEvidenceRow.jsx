@@ -224,11 +224,15 @@ const PANEL_TITLES = {
   wait: 'Wait',
   pre: 'Berth → start cargo',
   flow: 'Achieved rate',
-  netFlow: 'Net rate and stops',
-  stopH: 'Net rate and stops',
+  pumped: 'Pumped, kuras and downtime',
+  kurasQty: 'Pumped, kuras and downtime',
+  kurasRate: 'Pumped, kuras and downtime',
+  downtime: 'Pumped, kuras and downtime',
   activeFlow: 'Active flow rate',
   cargoDoneToSail: 'Cargo done → sailed off',
 }
+
+const PANEL_BREAKDOWN_KEYS = ['pumped', 'kurasQty', 'kurasRate', 'downtime']
 
 export default function ProductMetricEvidenceRow({
   row,
@@ -255,7 +259,10 @@ export default function ProductMetricEvidenceRow({
           {columnKey === 'pre' ? (
             <BerthToStartPanel row={row} prefetchedDetail={detail} />
           ) : null}
-          {columnKey === 'flow' || columnKey === 'activeFlow' ? (
+          {PANEL_BREAKDOWN_KEYS.includes(columnKey) || (columnKey === 'activeFlow' && row?.rateBreakdown) ? (
+            <RateBreakdownPanel row={row} />
+          ) : null}
+          {columnKey === 'flow' || (columnKey === 'activeFlow' && !row?.rateBreakdown) ? (
             <FlowEvidencePanel
               row={row}
               productKey={productKey}
@@ -266,7 +273,6 @@ export default function ProductMetricEvidenceRow({
           {columnKey === 'cargoDoneToSail' ? (
             <CargoDonePanel row={row} timelineEvents={timeline} />
           ) : null}
-          {columnKey === 'netFlow' || columnKey === 'stopH' ? <RateBreakdownPanel row={row} /> : null}
         </div>
       </td>
     </tr>

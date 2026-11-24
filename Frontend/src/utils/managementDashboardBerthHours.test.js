@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildBerthHourSegments, rowStopParts } from './managementDashboardBerthHours.js'
-import { mergeCargoRatesIntoRow, voyageNetRate } from './managementDashboardCargoRate.js'
+import { mergeCargoRatesIntoRow } from './managementDashboardCargoRate.js'
 
 // 10 h at berth: 1 h before cargo, 6 h cargo window, 2 h after, 1 h idle.
 const row = { wait: 4, berth: 10, pre: 1, opsH: 6, cargoDoneToSailH: 2, stopHoursBefore: 0.5, stopHoursDuring: 2, stopHoursAfter: 0.5 }
@@ -35,33 +35,36 @@ test('stops are limited to the phase they sit in', () => {
   assert.deepEqual(rowStopParts({}), { before: 0, during: 0, after: 0 })
 })
 
-test('rows without a rate breakdown merge as before; with one they gain net fields', () => {
+test('rows without a rate breakdown merge as before; with one they gain the breakdown and stop hours', () => {
   const plain = mergeCargoRatesIntoRow({ id: 7 }, { 7: { voyage: { rateMtH: 40, movedQty: 100 } } })
-  assert.equal('voyageNetRateMtH' in plain, false)
+  assert.equal('rateBreakdown' in plain, false)
   assert.equal(plain.voyageRateMtH, 40)
-  const withNet = mergeCargoRatesIntoRow(
+  const withBreakdown = mergeCargoRatesIntoRow(
     { id: 7 },
-    { 7: { voyage: { rateMtH: 40, breakdown: { netRateMtH: 55, pumpingHours: 2, stopHours: { before: 1, during: 2, after: 0, total: 3 }, normal: { rateMtH: 90 }, kuras: { rateMtH: 20 } } } } }
+    { 7: { voyage: { rateMtH: 40, breakdown: { stopHours: { before: 1, during: 2, after: 0, total: 3 }, normal: { rateMtH: 90 }, kuras: { rateMtH: 20 } } } } }
   )
-  assert.equal(voyageNetRate(withNet), 55)
-  assert.equal(withNet.stopHoursDuring, 2)
-  assert.equal(withNet.voyageKurasRateMtH, 20)
-  assert.equal(voyageNetRate({}), null)
+  assert.equal(withBreakdown.rateBreakdown.normal.rateMtH, 90)
+  assert.equal(withBreakdown.stopHoursBefore, 1)
+  assert.equal(withBreakdown.stopHoursDuring, 2)
+  assert.equal(withBreakdown.stopHoursAfter, 0)
 })
 
-test('rate evidence sections list rates and hours; none without a breakdown', async () => {
+test('evidence sections list quantities, rates and hours; none without a breakdown', async () => {
   const { rateEvidenceSections } = await import('./managementDashboardRateEvidence.js')
   assert.deepEqual(rateEvidenceSections({}), [])
   const sections = rateEvidenceSections(
     mergeCargoRatesIntoRow(
       { id: 1 },
-      { 1: { voyage: { rateMtH: 40, loggedHours: 10, breakdown: { netRateMtH: 50, pumpingHours: 8, stopCount: 2, stopHours: { before: 1, during: 2, after: 0, total: 3 }, normal: { rateMtH: 90 }, kuras: { rateMtH: 20, startedAt: '2026-11-14T08:00:00Z' } } } } }
+      { 1: { voyage: { rateMtH: 40, loggedHours: 10, breakdown: { stopCount: 2, stopHours: { before: 1, during: 2, after: 0, total: 3 }, normal: { qty: 900, hours: 6, rateMtH: 150 }, kuras: { qty: 100, hours: 4, rateMtH: 25, startedAt: '2026-11-14T08:00:00Z' } } } } }
     ),
     (v) => `@${v}`
   )
   const flat = Object.fromEntries(sections.flatMap((s) => s.rows.map((r) => [r.label, r.value])))
-  assert.equal(flat['Net rate (moved ÷ pumping hours)'], '50 MT/h')
-  assert.equal(flat['Kuras rate'], '20 MT/h · from @2026-11-14T08:00:00Z')
-  assert.equal(flat['Stopped during cargo (recorded)'], '2 h')
-  assert.equal(flat['Stops recorded'], '2')
+  assert.equal(flat['Pumped (outside kuras)'], '900 MT')
+  assert.equal(flat['Cleaned / Kuras'], '100 MT')
+  assert.equal(flat['Achieved rate (moved ÷ cargo window)'], '40 MT/h')
+  assert.equal(flat['Active rate (pumped ÷ hours entries ran, kuras left out)'], '150 MT/h')
+  assert.equal(flat['Cleaning / Kuras rate (cleaned ÷ hours entries ran in kuras)'], '25 MT/h · from @2026-11-14T08:00:00Z')
+  assert.equal(flat['Total downtime (stops during cargo)'], '2 h')
+  assert.equal(flat['Stops recorded in all phases'], '2')
 })

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pumpingHours, summarizeStops } from './no-flow-metrics.js';
+import { summarizeStops } from './no-flow-metrics.js';
 
 const cargoWindow = { startedAt: '2026-11-11T08:00:00Z', endedAt: '2026-11-14T12:00:00Z' };
 
@@ -53,11 +53,4 @@ test('skips stops outside the range and bad dates', () => {
   });
   assert.equal(r.totalHours, 0);
   assert.equal(r.stops.length, 0);
-});
-
-test('pumping hours never go below zero', () => {
-  assert.equal(pumpingHours(76.8, 27.3), 76.8 - 27.3);
-  assert.equal(pumpingHours(10, 12), 0);
-  assert.equal(pumpingHours(0, 1), null);
-  assert.equal(pumpingHours(null, 1), null);
 });
