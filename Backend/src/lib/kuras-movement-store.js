@@ -131,7 +131,7 @@ async function updateKurasStarts(db, lines, results, rules) {
   const auto = lines.filter((l) => l.kurasStartSource === 'auto' && l.endedAt);
   if (!auto.length) return 0;
   const hoursR = await db.query(
-    `SELECT load_line_id, hour_start, hour_end, qty_moved, movement_status
+    `SELECT load_line_id, hour_start, hour_end, qty_moved, movement_status, source
      FROM operation_hourly_cargo_progress WHERE load_line_id = ANY($1::bigint[])`,
     [auto.map((l) => l.id)]
   );
@@ -144,6 +144,7 @@ async function updateKurasStarts(db, lines, results, rules) {
       hourEnd: toIso(h.hour_end),
       qtyMoved: Number(h.qty_moved),
       movementStatus: h.movement_status,
+      source: h.source,
     });
   }
   const found = auto.map((l) => {

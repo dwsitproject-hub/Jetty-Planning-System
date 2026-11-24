@@ -95,3 +95,13 @@ test('kurasStartInsideEntry', () => {
   assert.equal(kurasStartInsideEntry('2026-11-13T23:00:00Z', s, e), false);
   assert.equal(kurasStartInsideEntry('2026-11-15T09:00:00Z', s, null), true);
 });
+
+test('manual and fallback hours are ignored: a flat rate says nothing about when the flow slowed', () => {
+  const flat = hours([20, 20, 20, 20, 20, 20, 20, 20, 20, 20]).map((h) => ({ ...h, source: 'manual' }));
+  const r = findKurasStart({ ...base, plannedQty: 200, hours: flat });
+  assert.equal(r.kurasStartedAt, null);
+  assert.equal(r.reason.code, 'noHourly');
+  const mixed = hours([100, 100, 100, 100, 100, 100, 100, 100, 30, 30, 30, 30]).map((h, i) => ({ ...h, source: i < 8 ? 'manual_fallback' : 'atg' }));
+  const m = findKurasStart({ ...base, plannedQty: 950, hours: mixed });
+  assert.equal(m.kurasStartedAt, '2026-11-14T08:00:00.000Z');
+});

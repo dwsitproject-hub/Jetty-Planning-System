@@ -3,14 +3,20 @@
  * Kuras rule used for whole entries (remaining before the hour and/or hourly rate). Kuras starts
  * at the earliest pumping hour from which every later pumping hour also matches the rule.
  * Hours without movement (flat / zero qty) neither start nor break the kuras run.
+ * Only hours measured by ATG are judged: manual and fallback hours are spread evenly from one
+ * logged quantity, so their rate is flat and says nothing about when the flow slowed down.
+ * They still count towards the quantity moved so far.
  */
 import { evaluateKurasSegment } from './kuras-movement.js';
 
 const ms = (v) => (v == null ? NaN : new Date(v).getTime());
 
+/** A bucket carries a measured rate when ATG made it (a bucket without a source counts as measured). */
+const isMeasured = (h) => h.source == null || h.source === 'atg';
+
 /**
  * @param {{
- *   hours: Array<{ hourStart: string, hourEnd: string, qtyMoved: number|null, movementStatus?: string }>,
+ *   hours: Array<{ hourStart: string, hourEnd: string, qtyMoved: number|null, movementStatus?: string, source?: string }>,
  *   lineStartedAt: string,
  *   lineEndedAt: string|null,
  *   plannedQty: number|null,
@@ -32,7 +38,7 @@ export function findKurasStart({ hours, lineStartedAt, lineEndedAt, plannedQty, 
     const qty = Number(h.qtyMoved) || 0;
     const start = Math.max(ms(h.hourStart), lineStart);
     const end = Math.min(ms(h.hourEnd), lineEnd);
-    const pumping = qty > 0 && h.movementStatus !== 'flat_movement' && end > start;
+    const pumping = isMeasured(h) && qty > 0 && h.movementStatus !== 'flat_movement' && end > start;
     if (pumping) {
       const remainingPct =
         plannedQty != null && plannedQty > 0 ? Math.max(0, ((plannedQty - moved) / plannedQty) * 100) : null;
