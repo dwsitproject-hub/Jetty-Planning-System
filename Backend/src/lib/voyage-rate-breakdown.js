@@ -102,7 +102,43 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
   const kurasHours = spanHours(unionSpans(kurasSpans));
   const normalHours = spanHours(unionSpans(normalSpans));
 
+  // Total downtime = every hour between the first cargo start and the last cargo end when no entry
+  // was running (gaps), plus recorded stops in that window; overlaps are counted once.
+  const allSpans = unionSpans([...normalSpans, ...kurasSpans]);
+  let downtimeHours = 0;
+  let gapHours = 0;
+  let noReasonHours = 0;
+  let reasons = [];
+  if (allSpans.length) {
+    const winStart = allSpans[0][0];
+    const winEnd = allSpans[allSpans.length - 1][1];
+    const gaps = [];
+    for (let i = 1; i < allSpans.length; i++) gaps.push([allSpans[i - 1][1], allSpans[i][0]]);
+    const stopSpans = [];
+    for (const e of events) {
+      const s = Math.max(ms(e.startedAt), winStart);
+      const en = Math.min(e.endedAt ? ms(e.endedAt) : nowMs, winEnd);
+      if (Number.isFinite(s) && Number.isFinite(en) && en > s) stopSpans.push([s, en]);
+    }
+    gapHours = spanHours(gaps);
+    downtimeHours = spanHours(unionSpans([...gaps, ...stopSpans]));
+    noReasonHours = Math.max(0, downtimeHours - spanHours(unionSpans(stopSpans)));
+    const byCode = new Map();
+    for (const e of events) {
+      const s = Math.max(ms(e.startedAt), winStart);
+      const en = Math.min(e.endedAt ? ms(e.endedAt) : nowMs, winEnd);
+      if (!(en > s)) continue;
+      const code = e.reasonCode || 'UNKNOWN';
+      if (!byCode.has(code)) byCode.set(code, { code, name: e.reasonNameEn || code, spans: [] });
+      byCode.get(code).spans.push([s, en]);
+    }
+    reasons = [...byCode.values()]
+      .map((r) => ({ code: r.code, name: r.name, hours: round2(spanHours(unionSpans(r.spans))) }))
+      .sort((a, b) => b.hours - a.hours);
+  }
+
   return {
+    downtime: { hours: round2(downtimeHours) ?? 0, gapHours: round2(gapHours) ?? 0, noReasonHours: round2(noReasonHours) ?? 0, reasons },
     stopHours: {
       before: round2(stops.byPhase.before) ?? 0,
       during: round2(stops.byPhase.during) ?? 0,
@@ -141,7 +177,7 @@ export async function loadRateBreakdownInputs(db, operationIds) {
       [ids]
     ),
     db.query(
-      `SELECT e.operation_id, e.started_at, e.ended_at, r.code, r.category
+      `SELECT e.operation_id, e.started_at, e.ended_at, r.code, r.category, r.name_en
        FROM operation_no_flow_events e
        JOIN master_no_flow_reasons r ON r.id = e.reason_id
        WHERE e.operation_id = ANY($1::bigint[]) AND e.deleted_at IS NULL`,
@@ -172,6 +208,7 @@ export async function loadRateBreakdownInputs(db, operationIds) {
       endedAt: toIso(row.ended_at),
       reasonCode: row.code,
       category: row.category,
+      reasonNameEn: row.name_en,
     });
   }
   if (splitLineIds.length) {

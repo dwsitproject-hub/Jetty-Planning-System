@@ -20,6 +20,26 @@ test('without kuras everything is pumped; the active rate is moved ÷ running ho
   assert.equal(r.kuras.startedAt, null);
 });
 
+test('total downtime = gaps between entries plus recorded stops, overlaps counted once', () => {
+  const r = buildRateBreakdown({
+    ...base,
+    movedQty: 1000,
+    lines: [line(1, 0, 4, 600), line(2, 6, 10, 400)],
+    events: [{ startedAt: iso(5), endedAt: iso(7), reasonCode: 'OVT', category: 'terminal' }],
+  });
+  assert.equal(r.downtime.gapHours, 2);
+  assert.equal(r.downtime.hours, 3);
+  const r2 = buildRateBreakdown({
+    ...base,
+    movedQty: 1000,
+    lines: [line(1, 0, 4, 600), line(2, 6, 10, 400)],
+    events: [{ startedAt: iso(8), endedAt: iso(9), reasonCode: 'OVT', category: 'terminal' }],
+  });
+  assert.equal(r2.downtime.hours, 3);
+  assert.equal(r2.downtime.noReasonHours, 2);
+  assert.deepEqual(r2.downtime.reasons, [{ code: 'OVT', name: 'OVT', hours: 1 }]);
+});
+
 test('stops before and after the cargo window are counted apart from downtime during cargo', () => {
   const r = buildRateBreakdown({
     ...base,

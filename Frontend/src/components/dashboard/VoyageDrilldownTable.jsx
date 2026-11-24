@@ -95,7 +95,7 @@ const VOYAGE_COLUMNS = [
   { key: 'activeFlow', label: 'Active rate', align: 'right', sortValue: activeRateOf },
   { key: 'kurasQty', label: 'Cleaned / Kuras (MT)', align: 'right', sortValue: (r) => r.rateBreakdown?.kuras?.qty ?? null },
   { key: 'kurasRate', label: 'Cleaning / Kuras rate', align: 'right', sortValue: (r) => positive(r.rateBreakdown?.kuras?.rateMtH) },
-  { key: 'downtime', label: 'Total downtime (h)', align: 'right', sortValue: (r) => r.rateBreakdown?.stopHours?.during ?? null },
+  { key: 'downtime', label: 'Total downtime (h)', align: 'right', sortValue: (r) => r.rateBreakdown?.downtime?.hours ?? null },
   { key: 'hoursByRate', label: 'Hours by rate', sortValue: (r) => fastShare(r.hourlyProfile) },
   { key: 'cargoDoneToSail', label: 'Cargo done → sailed off', align: 'right', sortValue: (r) => r.cargoDoneToSailH },
   {
@@ -110,7 +110,7 @@ const VOYAGE_COLUMNS = [
 const COLUMN_ORDER = {
   standard: ['vessel', 'jetty', 'commodity', 'moved', 'wait', 'pre', 'flow', 'activeFlow', 'hoursByRate', 'cargoDoneToSail', 'dateCompleted', 'status'],
   /** Pumped / cleaned / downtime view (net-rate switch on): the rate columns sit together. */
-  breakdown: ['vessel', 'jetty', 'commodity', 'pumped', 'flow', 'activeFlow', 'kurasQty', 'kurasRate', 'downtime', 'wait', 'pre', 'hoursByRate', 'cargoDoneToSail', 'dateCompleted', 'status'],
+  breakdown: ['vessel', 'jetty', 'commodity', 'wait', 'pre', 'pumped', 'flow', 'activeFlow', 'kurasQty', 'kurasRate', 'downtime', 'hoursByRate', 'cargoDoneToSail', 'dateCompleted', 'status'],
 }
 
 function columnsFor(breakdown) {
@@ -290,7 +290,7 @@ function VoyageBlock({
                 activeFlow: <td {...metricProps(rk, 'activeFlow')}>{num(activeRate, 1, ' MT/h')}</td>,
                 kurasQty: <td {...metricProps(rk, 'kurasQty')}>{num(bd?.kuras?.qty, 0, '')}</td>,
                 kurasRate: <td {...metricProps(rk, 'kurasRate')}>{num(positive(bd?.kuras?.rateMtH), 1, ' MT/h')}</td>,
-                downtime: <td {...metricProps(rk, 'downtime')}>{num(bd?.stopHours?.during, 1, ' h')}</td>,
+                downtime: <td {...metricProps(rk, 'downtime')}>{num(bd?.downtime?.hours, 1, ' h')}</td>,
                 hoursByRate: (
                   <td
                     {...(r.hourlyProfile ? metricProps(rk, 'hoursByRate') : {})}

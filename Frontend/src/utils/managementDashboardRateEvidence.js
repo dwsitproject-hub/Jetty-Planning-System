@@ -43,9 +43,20 @@ export function rateEvidenceSections(row, formatAt = (v) => v) {
         { label: 'Cargo window (first start → last end)', value: hours(row.voyageLoggedHours) },
         { label: 'Entries running, outside kuras', value: hours(b.normal?.hours) },
         { label: 'Entries running, in kuras', value: hours(b.kuras?.hours) },
-        { label: 'Total downtime (stops during cargo)', value: hours(b.stopHours?.during), kind: 'computed' },
+        { label: 'Gaps between entries (no entry running)', value: hours(b.downtime?.gapHours) },
+        { label: 'Total downtime (gaps + recorded stops, counted once)', value: hours(b.downtime?.hours), kind: 'computed' },
         { label: 'Stops recorded in all phases', value: String(b.stopCount ?? 0) },
       ],
     },
+    ...downtimeReasonSection(b),
   ]
+}
+
+/** Total downtime split by recorded stop reason; hours nobody gave a reason for show as No Reason. */
+function downtimeReasonSection(b) {
+  const d = b.downtime
+  if (!d || !(d.hours > 0)) return []
+  const rows = (d.reasons || []).filter((r) => r.hours > 0).map((r) => ({ label: r.name, value: hours(r.hours) }))
+  if (d.noReasonHours > 0) rows.push({ label: 'No Reason', value: hours(d.noReasonHours), kind: 'muted' })
+  return rows.length ? [{ key: 'downtimeReasons', title: 'Total downtime by reason', rows }] : []
 }

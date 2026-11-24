@@ -55,7 +55,7 @@ test('evidence sections list quantities, rates and hours; none without a breakdo
   const sections = rateEvidenceSections(
     mergeCargoRatesIntoRow(
       { id: 1 },
-      { 1: { voyage: { rateMtH: 40, loggedHours: 10, breakdown: { stopCount: 2, stopHours: { before: 1, during: 2, after: 0, total: 3 }, normal: { qty: 900, hours: 6, rateMtH: 150 }, kuras: { qty: 100, hours: 4, rateMtH: 25, startedAt: '2026-11-14T08:00:00Z' } } } } }
+      { 1: { voyage: { rateMtH: 40, loggedHours: 10, breakdown: { stopCount: 2, downtime: { hours: 3.5, gapHours: 1.5, noReasonHours: 1.5, reasons: [{ code: 'OVT', name: 'Waiting overtime', hours: 2 }] }, stopHours: { before: 1, during: 2, after: 0, total: 3 }, normal: { qty: 900, hours: 6, rateMtH: 150 }, kuras: { qty: 100, hours: 4, rateMtH: 25, startedAt: '2026-11-14T08:00:00Z' } } } } }
     ),
     (v) => `@${v}`
   )
@@ -65,6 +65,9 @@ test('evidence sections list quantities, rates and hours; none without a breakdo
   assert.equal(flat['Achieved rate (moved ÷ cargo window)'], '40 MT/h')
   assert.equal(flat['Active rate (pumped ÷ hours entries ran, kuras left out)'], '150 MT/h')
   assert.equal(flat['Cleaning / Kuras rate (cleaned ÷ hours entries ran in kuras)'], '25 MT/h · from @2026-11-14T08:00:00Z')
-  assert.equal(flat['Total downtime (stops during cargo)'], '2 h')
+  assert.equal(flat['Gaps between entries (no entry running)'], '1.5 h')
+  assert.equal(flat['Total downtime (gaps + recorded stops, counted once)'], '3.5 h')
   assert.equal(flat['Stops recorded in all phases'], '2')
+  assert.equal(flat['Waiting overtime'], '2 h')
+  assert.equal(flat['No Reason'], '1.5 h')
 })
