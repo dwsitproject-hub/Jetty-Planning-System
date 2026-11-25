@@ -153,6 +153,7 @@ function toRow(o, detail, timelineEvents) {
   const opsDoneOrCo = ms(o.operationsCompletedAt || o.castOffAt)
   return {
     id: o.id, code: o.jettyOperationCode, vessel: o.vesselName, purpose: o.purpose,
+    masterVesselId: o.masterVesselId ?? null, masterVesselName: o.masterVesselName ?? null,
     status: o.status, jetty: o.jettyName,
     commodity: o.commodityShortDisplay || o.commodityDisplay || o.commodity,
     totalQtyDisplay: o.totalQtyDisplay || null,
@@ -196,6 +197,7 @@ export default function ManagementDashboard() {
   const [rangeFrom, setRangeFrom] = useState('')
   const [rangeTo, setRangeTo] = useState('') // both set → period 'custom'
   const [purpose, setPurpose] = useState('All')
+  const [voyageGroupBy, setVoyageGroupBy] = useState('voyage')
   const features = useFeatureFlags()
   const [activeModal, setActiveModal] = useState(null)
   const [productDetail, setProductDetail] = useState(null)
@@ -990,9 +992,21 @@ export default function ManagementDashboard() {
           {features.noFlowReport ? <StopHoursCard range={stopRange} purpose={purpose} /> : null}
 
           <section className="card mgmt-sec">
-            <h2 className="card__title">By Voyage</h2>
+            <div className="mgmt-voyage-head">
+              <h2 className="card__title">{voyageGroupBy === 'vessel' ? 'By Vessel' : 'By Voyage'}</h2>
+              <div className="mgmt-seg" role="group" aria-label="Group voyages">
+                {[['voyage', 'By voyage'], ['vessel', 'By vessel']].map(([k, label]) => (
+                  <button key={k} type="button" className={voyageGroupBy === k ? 'on' : ''} aria-pressed={voyageGroupBy === k} onClick={() => setVoyageGroupBy(k)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <p className="text-steel mgmt-sub">
-              Sailed voyages in period + vessels alongside as of {snapLabel} · click a metric for its calculation
+              Sailed voyages in period + vessels alongside as of {snapLabel} ·{' '}
+              {voyageGroupBy === 'vessel'
+                ? 'one row per Master Vessel, loading and unloading together · click a vessel for its voyages'
+                : 'click a metric for its calculation'}
             </p>
             <VoyageDrilldownTable
               rows={tableRows}
@@ -1001,6 +1015,7 @@ export default function ManagementDashboard() {
               showIncoming={showProductIncoming}
               showOutgoing={showProductOutgoing}
               breakdown={features.netRate}
+              groupBy={voyageGroupBy}
             />
           </section>
 

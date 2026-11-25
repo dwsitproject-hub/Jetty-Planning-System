@@ -838,3 +838,13 @@
 .wf-stop{background:repeating-linear-gradient(135deg,var(--mg-crit) 0 4px,#8f1e18 4px 8px)}
 .wf-noreason{background:#8b8a85;opacity:.6}
 .wf-idle--soft{background:var(--mg-warn);opacity:.55}
+
+/* By Voyage card — By voyage / By vessel switch and vessel rows */
+.mgmt-voyage-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.mgmt-vessel-row{cursor:pointer}
+.mgmt-vessel-row:hover td,.mgmt-vessel-row--open td{background:var(--color-bg-subtle,#F5F7FA)}
+.mgmt-vessel-row:focus-visible{outline:2px solid var(--mg-brand);outline-offset:-2px}
+.mgmt-vessel-row__caret{display:inline-block;width:14px;color:var(--color-text-steel,#5B6675)}
+.mgmt-vessel-row__unlinked{margin-left:6px;font-size:10.5px}
+.mgmt-vessel-row__voyages>td{padding:8px 8px 12px 22px;background:var(--color-bg-subtle,#F5F7FA)}
+.mgmt-vessel-row__voyages .mgmt-product-block{margin:0}

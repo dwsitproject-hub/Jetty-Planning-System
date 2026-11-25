@@ -63,7 +63,9 @@ const SI_PRIMARY_METRIC_NAME = `(SELECT m.label FROM public.shipping_instruction
    WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
    ORDER BY b.line_order, b.id LIMIT 1)`;
 
-const OP_SELECT = `o.*, si.shipment_plan_id, sp.vessel_name, si.reference_number, ${SI_COMMODITY} AS commodity,
+const OP_SELECT = `o.*, si.shipment_plan_id, sp.vessel_name, sp.master_vessel_id,
+            (SELECT mv.vessel_name FROM master_vessels mv WHERE mv.id = sp.master_vessel_id) AS master_vessel_name,
+            si.reference_number, ${SI_COMMODITY} AS commodity,
             ${SI_COMMODITY_TYPE} AS commodity_type,
             ${SI_CARGO_TOTAL_QTY} AS cargo_si_qty,
             ${SI_PRIMARY_METRIC_CODE} AS cargo_si_metric_code,
@@ -1511,6 +1513,8 @@ export function toOp(row) {
     status: row.status,
     purpose: row.purpose,
     vesselName: row.vessel_name ?? undefined,
+    masterVesselId: row.master_vessel_id != null ? String(row.master_vessel_id) : null,
+    masterVesselName: row.master_vessel_name ?? null,
     referenceNumber: row.reference_number ?? undefined,
     commodity: row.commodity_display || row.commodity || undefined,
     commodityDisplay: row.commodity_display || row.commodity || undefined,

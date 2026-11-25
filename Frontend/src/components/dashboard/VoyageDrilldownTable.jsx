@@ -12,6 +12,7 @@ import {
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
 import ProductMetricEvidenceRow from './ProductMetricEvidenceRow.jsx'
 import VoyageCommodityFilter from './VoyageCommodityFilter.jsx'
+import VesselGroupBlock from './VesselGroupBlock.jsx'
 import { HourlyRateBreakdownRow, HourlyRateCell, HoursByRateHeader } from './HourlyRateCell.jsx'
 import useHourlyRateProfiles from '../../hooks/useHourlyRateProfiles.js'
 import {
@@ -27,7 +28,7 @@ function fmtNum(n, d = 1) {
   return n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d })
 }
 
-function statusLabel(r) {
+export function statusLabel(r) {
   if (r.sailedInPeriod) return 'Sailed'
   if (r.status === 'SAILED') return 'At berth'
   return {
@@ -38,7 +39,7 @@ function statusLabel(r) {
   }[r.status] || r.status || ''
 }
 
-function statusChip(r) {
+export function statusChip(r) {
   const label = statusLabel(r)
   if (r.sailedInPeriod) return <span className="mgmt-chip mgmt-chip--ghost">{label}</span>
   return (
@@ -139,15 +140,15 @@ function voyageThClass(column) {
   return [column.align === 'right' ? 'mgmt-r' : '', 'mgmt-voyage-th', ui?.thClass].filter(Boolean).join(' ')
 }
 
-function voyageTdClass(columnKey, extra = '') {
+export function voyageTdClass(columnKey, extra = '') {
   const col = VOYAGE_COLUMNS.find((c) => c.key === columnKey)
   const ui = VOYAGE_COLUMN_UI[columnKey]
   return [col?.align === 'right' ? 'mgmt-r' : '', ui?.tdClass, extra].filter(Boolean).join(' ')
 }
 
-function SortHeader({ column, sort, onSort }) {
+export function SortHeader({ column, sort, onSort }) {
   const active = sort?.key === column.key
-  const ui = VOYAGE_COLUMN_UI[column.key]
+  const lines = column.headerLines ?? VOYAGE_COLUMN_UI[column.key]?.headerLines
   return (
     <th className={voyageThClass(column)}>
       <button
@@ -156,11 +157,11 @@ function SortHeader({ column, sort, onSort }) {
         onClick={() => onSort(column.key)}
         aria-label={`Sort by ${column.label}`}
       >
-        {ui?.headerLines ? (
+        {lines ? (
           <span className="mgmt-voyage-th__label">
-            {ui.headerLines[0]}
+            {lines[0]}
             <br />
-            {ui.headerLines[1]}
+            {lines[1]}
           </span>
         ) : (
           column.label
@@ -173,7 +174,8 @@ function SortHeader({ column, sort, onSort }) {
   )
 }
 
-function BlockTitle({ title, chipClass }) {
+export function BlockTitle({ title, chipClass }) {
+  if (!title) return null
   return (
     <h3 className="mgmt-product-block__title">
       {title}
@@ -184,7 +186,7 @@ function BlockTitle({ title, chipClass }) {
   )
 }
 
-function VoyageBlock({
+export function VoyageBlock({
   title,
   chipClass,
   rows,
@@ -196,6 +198,7 @@ function VoyageBlock({
   onRateViewChange,
   profilesLoading,
   breakdown,
+  showPurpose = false,
 }) {
   const columns = useMemo(() => columnsFor(breakdown), [breakdown])
   const colSpan = columns.length
@@ -278,6 +281,11 @@ function VoyageBlock({
                     <b>{r.vessel}</b>
                     <br />
                     <span className="text-steel" style={{ fontSize: 11 }}>{r.code}</span>
+                    {showPurpose ? (
+                      <span className={`mgmt-chip ${r.purpose === 'Loading' ? 'mgmt-chip--load' : 'mgmt-chip--disch'}`} style={{ marginLeft: 6 }}>
+                        {r.purpose === 'Loading' ? 'LOAD' : 'UNLOAD'}
+                      </span>
+                    ) : null}
                   </td>
                 ),
                 jetty: <td>{r.jetty || '—'}</td>,
@@ -344,6 +352,7 @@ export default function VoyageDrilldownTable({
   showIncoming = true,
   showOutgoing = true,
   breakdown = false,
+  groupBy = 'voyage',
 }) {
   const allRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows])
   const [commodities, setCommodities] = useState(() => new Set())
@@ -395,6 +404,18 @@ export default function VoyageDrilldownTable({
     onRateViewChange: setRateView,
     profilesLoading,
     breakdown,
+  }
+
+  if (groupBy === 'vessel') {
+    return (
+      <div className="mgmt-product-tables">
+        {filter}
+        <VesselGroupBlock
+          rows={[...(showIncoming ? incoming : []), ...(showOutgoing ? outgoing : [])]}
+          voyageBlockProps={{ ...blockProps, showPurpose: true }}
+        />
+      </div>
+    )
   }
 
   return (
