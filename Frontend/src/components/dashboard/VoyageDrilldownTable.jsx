@@ -2,7 +2,7 @@
  * By Voyage: one row per call, grouped Incoming (unload) / Outgoing (load).
  */
 import { Fragment, useCallback, useMemo, useState } from 'react'
-import { voyageActiveFlowRate, voyageFlowRate } from '../../utils/managementDashboardFlow.js'
+import { voyageDisplayActiveRate, voyageFlowRate } from '../../utils/managementDashboardFlow.js'
 import { voyageMovedQtyLines, voyageMovedQtySortValue } from '../../utils/managementDashboardProduct.js'
 import { sortModalRows } from '../../utils/widgetDetailSort.js'
 import {
@@ -81,8 +81,7 @@ function MovedQtyCell({ row }) {
 
 const positive = (v) => (v != null && Number.isFinite(v) && v > 0 ? v : null)
 
-/** Active rate: pumped ÷ running hours outside kuras when the breakdown is on, else moved ÷ running hours. */
-const activeRateOf = (r) => (r.rateBreakdown ? positive(r.rateBreakdown.normal?.rateMtH) : voyageActiveFlowRate(r))
+const activeRateOf = voyageDisplayActiveRate
 
 const VOYAGE_COLUMNS = [
   { key: 'vessel', label: 'Vessel', sortValue: (r) => r.vessel || '' },

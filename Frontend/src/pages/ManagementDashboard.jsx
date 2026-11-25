@@ -1005,7 +1005,7 @@ export default function ManagementDashboard() {
             <p className="text-steel mgmt-sub">
               Sailed voyages in period + vessels alongside as of {snapLabel} ·{' '}
               {voyageGroupBy === 'vessel'
-                ? 'one row per Master Vessel, loading and unloading together · click a vessel for its voyages'
+                ? 'one row per vessel, loading and unloading together · click a vessel for its voyages'
                 : 'click a metric for its calculation'}
             </p>
             <VoyageDrilldownTable

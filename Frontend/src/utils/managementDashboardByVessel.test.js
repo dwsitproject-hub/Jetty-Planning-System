@@ -21,7 +21,6 @@ describe('groupVoyagesByVessel', () => {
     ])
     assert.equal(out.length, 2)
     const one = out.find((v) => v.key === 'mv:7')
-    assert.equal(one.linked, true)
     assert.equal(one.vessel, 'BG. ONE')
     assert.equal(one.callCount, 2)
     assert.equal(one.loadCalls, 1)
@@ -30,19 +29,49 @@ describe('groupVoyagesByVessel', () => {
     assert.equal(one.pre, 3)
     assert.deepEqual(one.jetties, ['J2', 'J1'])
     assert.equal(one.voyages[0].id, 2, 'latest berthing first')
-    assert.equal(out.find((v) => v.key === 'name:BG TWO').linked, false)
+    assert.equal(out.find((v) => v.key === 'name:BG TWO').vessel, 'BG TWO')
   })
 
-  it('counts ops on the same call once for timings and weights rates by hours', () => {
+  it('counts ops on the same call once for timings', () => {
     const [v] = groupVoyagesByVessel([
-      row({ id: 1, vessel: 'A', tb: 't1', wait: 10, voyageMovedQty: 1000, voyageLoggedHours: 10, voyageActiveHours: 8 }),
-      row({ id: 2, vessel: 'A', tb: 't1', wait: 10, voyageMovedQty: 1000, voyageLoggedHours: 10, voyageActiveHours: 8 }),
-      row({ id: 3, vessel: 'A', tb: 't2', wait: 40, voyageMovedQty: 3000, voyageLoggedHours: 30, voyageActiveHours: 20 }),
+      row({ id: 1, vessel: 'A', tb: 't1', wait: 10 }),
+      row({ id: 2, vessel: 'A', tb: 't1', wait: 10 }),
+      row({ id: 3, vessel: 'A', tb: 't2', wait: 40 }),
     ])
     assert.equal(v.callCount, 2)
     assert.equal(v.wait, 25)
-    assert.equal(v.rate, 5000 / 40)
-    assert.equal(v.activeRate, 5000 / 28)
+  })
+
+  it('averages the voyage rates simply and skips voyages without a rate', () => {
+    const [v] = groupVoyagesByVessel([
+      row({ id: 1, vessel: 'A', tb: 't1', voyageRateMtH: 300, voyageActiveRateMtH: 320 }),
+      row({ id: 2, vessel: 'A', tb: 't2', voyageRateMtH: 100, voyageActiveRateMtH: 120 }),
+      row({ id: 3, vessel: 'A', tb: 't3' }),
+    ])
+    assert.equal(v.rate, 200)
+    assert.equal(v.activeRate, 220)
+  })
+
+  it('uses the pumped rate as the active rate when the breakdown is on', () => {
+    const bd = (rate) => ({ normal: { rateMtH: rate }, downtime: { hours: 1 } })
+    const [v] = groupVoyagesByVessel([
+      row({ id: 1, vessel: 'A', tb: 't1', voyageActiveRateMtH: 999, rateBreakdown: bd(200) }),
+      row({ id: 2, vessel: 'A', tb: 't2', voyageActiveRateMtH: 999, rateBreakdown: bd(100) }),
+    ])
+    assert.equal(v.activeRate, 150)
+  })
+
+  it('totals downtime once per call across the vessel, null without a breakdown', () => {
+    const bd = (hours) => ({ downtime: { hours } })
+    const [v] = groupVoyagesByVessel([
+      row({ id: 1, vessel: 'A', tb: 't1', rateBreakdown: bd(3) }),
+      row({ id: 2, vessel: 'A', tb: 't1', rateBreakdown: bd(3) }),
+      row({ id: 3, vessel: 'A', tb: 't2', rateBreakdown: bd(4.5) }),
+      row({ id: 4, vessel: 'A', tb: 't3' }),
+    ])
+    assert.equal(v.downtimeH, 7.5)
+    const [none] = groupVoyagesByVessel([row({ id: 5, vessel: 'B', tb: 't1' })])
+    assert.equal(none.downtimeH, null)
   })
 
   it('shows a vessel still alongside and leaves rates empty without hours', () => {

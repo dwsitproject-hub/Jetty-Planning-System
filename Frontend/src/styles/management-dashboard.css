@@ -845,6 +845,5 @@
 .mgmt-vessel-row:hover td,.mgmt-vessel-row--open td{background:var(--color-bg-subtle,#F5F7FA)}
 .mgmt-vessel-row:focus-visible{outline:2px solid var(--mg-brand);outline-offset:-2px}
 .mgmt-vessel-row__caret{display:inline-block;width:14px;color:var(--color-text-steel,#5B6675)}
-.mgmt-vessel-row__unlinked{margin-left:6px;font-size:10.5px}
 .mgmt-vessel-row__voyages>td{padding:8px 8px 12px 22px;background:var(--color-bg-subtle,#F5F7FA)}
 .mgmt-vessel-row__voyages .mgmt-product-block{margin:0}

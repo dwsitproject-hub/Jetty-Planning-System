@@ -1,9 +1,9 @@
 /**
  * Management Dashboard By Vessel: roll the By Voyage rows up to one row per Master Vessel.
- * Durations are means over the vessel's calls; rates are weighted (total MT ÷ total hours).
- * Calls not linked to a Master Vessel group by name and are flagged `linked: false`.
+ * Durations are means over the vessel's calls; rates are simple averages of the voyage rows' rates.
+ * Calls not linked to a Master Vessel group by the name typed on the plan.
  */
-import { mean } from './managementDashboardFlow.js'
+import { mean, voyageDisplayActiveRate, voyageFlowRate } from './managementDashboardFlow.js'
 import { voyageMovedQtyLines } from './managementDashboardProduct.js'
 
 export function vesselGroupKey(row) {
@@ -12,47 +12,37 @@ export function vesselGroupKey(row) {
   return `name:${name || '—'}`
 }
 
-const positive = (v) => {
-  const n = Number(v)
-  return Number.isFinite(n) && n > 0 ? n : null
-}
-
 const ms = (v) => {
   const t = v ? Date.parse(v) : NaN
   return Number.isFinite(t) ? t : null
 }
 
-/** One entry per call (same TB): ops on one call share its timings and cargo window. */
+/** Downtime hours on one op, or null when the API sent no breakdown (net-rate switch off). */
+const downtimeOf = (r) => {
+  const h = Number(r.rateBreakdown?.downtime?.hours)
+  return Number.isFinite(h) && h >= 0 ? h : null
+}
+
+const maxOrNull = (a, b) => (a == null ? b : b == null ? a : Math.max(a, b))
+
+/** One entry per call (same TB): ops on one call share its timings and stops. */
 function callsOf(rows) {
   const calls = new Map()
   for (const r of rows) {
     const k = r.tb ?? `op:${r.id}`
     const c = calls.get(k)
     if (!c) {
-      calls.set(k, {
-        first: r,
-        moved: positive(r.voyageMovedQty) ?? 0,
-        logged: positive(r.voyageLoggedHours),
-        active: positive(r.voyageActiveHours),
-      })
+      calls.set(k, { first: r, downtime: downtimeOf(r) })
       continue
     }
-    c.moved += positive(r.voyageMovedQty) ?? 0
-    c.logged = Math.max(c.logged ?? 0, positive(r.voyageLoggedHours) ?? 0) || null
-    c.active = Math.max(c.active ?? 0, positive(r.voyageActiveHours) ?? 0) || null
+    c.downtime = maxOrNull(c.downtime, downtimeOf(r))
   }
   return [...calls.values()]
 }
 
-function weightedRate(calls, hoursKey) {
-  let moved = 0
-  let hours = 0
-  for (const c of calls) {
-    if (!(c.moved > 0) || !(c[hoursKey] > 0)) continue
-    moved += c.moved
-    hours += c[hoursKey]
-  }
-  return hours > 0 ? moved / hours : null
+function totalDowntime(calls) {
+  const hours = calls.map((c) => c.downtime).filter((h) => h != null)
+  return hours.length ? hours.reduce((s, h) => s + h, 0) : null
 }
 
 function movedLinesOf(rows) {
@@ -77,7 +67,6 @@ function vesselRow(key, voyages) {
   return {
     id: key,
     key,
-    linked,
     vessel: (linked && sorted.find((r) => r.masterVesselName)?.masterVesselName) || sorted[0]?.vessel || '—',
     voyages: sorted,
     callCount: calls.length,
@@ -88,8 +77,9 @@ function vesselRow(key, voyages) {
     movedTotal: movedNums.length ? movedNums.reduce((s, n) => s + n, 0) : null,
     wait: mean(calls.map((c) => c.first.wait)),
     pre: mean(calls.map((c) => c.first.pre)),
-    rate: weightedRate(calls, 'logged'),
-    activeRate: weightedRate(calls, 'active'),
+    rate: mean(sorted.map(voyageFlowRate)),
+    activeRate: mean(sorted.map(voyageDisplayActiveRate)),
+    downtimeH: totalDowntime(calls),
     cargoDoneToSailH: mean(calls.map((c) => c.first.cargoDoneToSailH)),
     lastCastOff: castOffs[0] ?? null,
     alongside: sorted.find((r) => !r.sailedInPeriod) ?? null,

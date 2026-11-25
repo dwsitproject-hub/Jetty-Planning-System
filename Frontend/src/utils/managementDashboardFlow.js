@@ -40,6 +40,16 @@ export function voyageActiveFlowRate(r) {
   return v != null && Number.isFinite(v) && v > 0 ? v : null
 }
 
+/**
+ * Active rate as the By Voyage table shows it: pumped ÷ running hours outside kuras when the
+ * net-rate breakdown is on, else moved ÷ running hours.
+ */
+export function voyageDisplayActiveRate(r) {
+  if (!r?.rateBreakdown) return voyageActiveFlowRate(r)
+  const v = r.rateBreakdown.normal?.rateMtH
+  return v != null && Number.isFinite(v) && v > 0 ? v : null
+}
+
 function byPurpose(rows, purpose) {
   return rows.filter((r) => r.purpose === purpose)
 }
