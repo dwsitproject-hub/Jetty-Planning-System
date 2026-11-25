@@ -847,3 +847,52 @@
 .mgmt-vessel-row__caret{display:inline-block;width:14px;color:var(--color-text-steel,#5B6675)}
 .mgmt-vessel-row__voyages>td{padding:8px 8px 12px 22px;background:var(--color-bg-subtle,#F5F7FA)}
 .mgmt-vessel-row__voyages .mgmt-product-block{margin:0}
+
+/* By vessel — compact fleet summary strip */
+.mgmt-vsum{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;margin:0 0 10px;border:1px solid var(--color-border-medium,#d1d5db);border-radius:8px;overflow:hidden;background:var(--color-border-medium,#d1d5db)}
+.mgmt-vsum__tile{background:var(--color-bg-white,#fff);padding:6px 12px;min-width:0}
+.mgmt-vsum__lbl{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--color-text-steel,#5B6675);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mgmt-vsum__val{display:block;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.25}
+.mgmt-vsum__unit{font-size:11px;font-weight:500;color:var(--color-text-steel,#5B6675)}
+@media (max-width:760px){.mgmt-vsum{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* By vessel — in-cell visuals */
+.mgmt-vbar{position:relative;display:block;min-width:110px;padding:3px 6px;text-align:right}
+.mgmt-vbar__fill{position:absolute;left:0;top:2px;bottom:2px;border-radius:3px;background:var(--mg-brand);opacity:.2}
+.mgmt-vbar__num{position:relative;font-variant-numeric:tabular-nums}
+.mgmt-vrange{display:block;min-width:120px}
+.mgmt-vrange__val{display:block;font-variant-numeric:tabular-nums}
+.mgmt-vrange__track{position:relative;display:block;height:6px;margin-top:3px;border-radius:3px;background:var(--mg-track)}
+.mgmt-vrange__line{position:absolute;top:2px;height:2px;border-radius:1px;background:var(--mg-post)}
+.mgmt-vrange__dot{position:absolute;top:-1px;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:var(--mg-brand)}
+.mgmt-vdot{display:inline-block;width:8px;height:8px;margin-left:6px;border-radius:50%;background:var(--mg-ok);vertical-align:1px}
+.mgmt-vessel-note{margin:8px 0 0}
+
+/* By vessel — drill-down */
+.mgmt-vdetail__stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 16px;margin:0 0 14px}
+.mgmt-vdetail__stat dt{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:var(--color-text-steel,#5B6675)}
+.mgmt-vdetail__stat dd{margin:1px 0 0;font-size:13px;font-weight:600}
+.mgmt-vdetail__charts{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:20px;margin-bottom:14px}
+@media (max-width:900px){.mgmt-vdetail__charts{grid-template-columns:minmax(0,1fr)}}
+.mgmt-vchart__title{margin:0 0 8px;font-size:12.5px;font-weight:700}
+.mgmt-vtime__row{display:grid;grid-template-columns:128px minmax(0,1fr) 52px;align-items:center;gap:8px;margin-bottom:5px}
+.mgmt-vtime__lbl{font-size:11.5px;white-space:nowrap}
+.mgmt-vtime__purpose{margin-left:5px;padding:0 4px;border-radius:3px;font-size:9px;font-weight:700;color:#fff}
+.mgmt-vtime__track{display:block;height:14px;border-radius:3px;background:var(--mg-track)}
+.mgmt-vtime__bar{display:flex;height:100%;border-radius:3px;overflow:hidden}
+.mgmt-vtime__seg{display:block;min-width:2px}
+.mgmt-vtime__tot{font-size:11.5px;font-variant-numeric:tabular-nums;text-align:right}
+.mgmt-vspeed{position:relative;display:flex;align-items:flex-end;gap:6px;height:112px;overflow-x:auto}
+.mgmt-vspeed__col{flex:1 0 34px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.mgmt-vspeed__val{font-size:10.5px;font-variant-numeric:tabular-nums;color:var(--color-text-steel,#5B6675)}
+.mgmt-vspeed__bar{display:block;width:70%;max-width:26px;border-radius:3px 3px 0 0}
+.mgmt-vspeed__date{font-size:10px;line-height:14px;color:var(--color-text-steel,#5B6675);white-space:nowrap}
+.mgmt-vspeed__avg{position:absolute;left:0;right:0;height:0;border-top:1.5px dashed var(--mg-crit);pointer-events:none}
+.mgmt-vspeed__avg-key{display:inline-block;width:14px;margin-right:5px;border-top:1.5px dashed var(--mg-crit);vertical-align:3px}
+/* By vessel — fixed layout so an opened row's wide voyage table scrolls inside the card */
+.mgmt-vessel-table{table-layout:fixed;width:100%}
+.mgmt-vessel-table thead th:nth-child(1){width:32%}
+.mgmt-vessel-table thead th:nth-child(2){width:10%}
+.mgmt-vessel-table thead th:nth-child(3){width:20%}
+.mgmt-vessel-table thead th:nth-child(4),.mgmt-vessel-table thead th:nth-child(5){width:19%}
+.mgmt-vessel-row__voyages>td{overflow:hidden}

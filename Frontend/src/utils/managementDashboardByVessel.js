@@ -57,6 +57,12 @@ function movedLinesOf(rows) {
   return [...byLabel.values()]
 }
 
+/** Slowest, fastest and count of the voyage rates behind an average; null when there are none. */
+function rangeOf(values) {
+  const v = values.filter((x) => x != null)
+  return v.length ? { min: Math.min(...v), max: Math.max(...v), n: v.length } : null
+}
+
 function vesselRow(key, voyages) {
   const sorted = [...voyages].sort((a, b) => (ms(b.tb) ?? 0) - (ms(a.tb) ?? 0))
   const calls = callsOf(sorted)
@@ -79,6 +85,8 @@ function vesselRow(key, voyages) {
     pre: mean(calls.map((c) => c.first.pre)),
     rate: mean(sorted.map(voyageFlowRate)),
     activeRate: mean(sorted.map(voyageDisplayActiveRate)),
+    rateRange: rangeOf(sorted.map(voyageFlowRate)),
+    activeRateRange: rangeOf(sorted.map(voyageDisplayActiveRate)),
     downtimeH: totalDowntime(calls),
     cargoDoneToSailH: mean(calls.map((c) => c.first.cargoDoneToSailH)),
     lastCastOff: castOffs[0] ?? null,
@@ -100,4 +108,25 @@ export function groupVoyagesByVessel(rows) {
   return [...groups.entries()]
     .map(([key, voyages]) => vesselRow(key, voyages))
     .sort((a, b) => (b.movedTotal ?? -1) - (a.movedTotal ?? -1))
+}
+
+/**
+ * Fleet figures for the strip above the table, over the same vessels the table lists.
+ * Rates are the simple average of every voyage's rate, like the vessel rows.
+ * `rateScaleMax` is the largest voyage rate, so every range line shares one scale.
+ * @param {object[]} vessels output of groupVoyagesByVessel
+ */
+export function summarizeVessels(vessels) {
+  const voyages = vessels.flatMap((v) => v.voyages)
+  const movedNums = vessels.map((v) => v.movedTotal).filter((q) => q != null)
+  const maxOf = (nums) => (nums.length ? Math.max(...nums) : 0)
+  return {
+    vessels: vessels.length,
+    voyages: vessels.reduce((s, v) => s + v.callCount, 0),
+    moved: movedNums.length ? movedNums.reduce((s, n) => s + n, 0) : null,
+    rate: mean(voyages.map(voyageFlowRate)),
+    activeRate: mean(voyages.map(voyageDisplayActiveRate)),
+    movedScaleMax: maxOf(movedNums),
+    rateScaleMax: maxOf([...vessels.map((v) => v.rateRange?.max), ...vessels.map((v) => v.activeRateRange?.max)].filter((x) => x != null)),
+  }
 }

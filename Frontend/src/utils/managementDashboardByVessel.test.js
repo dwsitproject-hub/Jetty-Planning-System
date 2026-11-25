@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { groupVoyagesByVessel, vesselGroupKey } from './managementDashboardByVessel.js'
+import { groupVoyagesByVessel, summarizeVessels, vesselGroupKey } from './managementDashboardByVessel.js'
 
 const row = (o) => ({ sailedInPeriod: true, commodity: '', purpose: 'Loading', ...o })
 
@@ -52,6 +52,16 @@ describe('groupVoyagesByVessel', () => {
     assert.equal(v.activeRate, 220)
   })
 
+  it('gives the slowest and fastest voyage rate behind each average', () => {
+    const [v] = groupVoyagesByVessel([
+      row({ id: 1, vessel: 'A', tb: 't1', voyageRateMtH: 300 }),
+      row({ id: 2, vessel: 'A', tb: 't2', voyageRateMtH: 100 }),
+      row({ id: 3, vessel: 'A', tb: 't3' }),
+    ])
+    assert.deepEqual(v.rateRange, { min: 100, max: 300, n: 2 })
+    assert.equal(v.activeRateRange, null)
+  })
+
   it('uses the pumped rate as the active rate when the breakdown is on', () => {
     const bd = (rate) => ({ normal: { rateMtH: rate }, downtime: { hours: 1 } })
     const [v] = groupVoyagesByVessel([
@@ -83,5 +93,21 @@ describe('groupVoyagesByVessel', () => {
     assert.equal(v.lastCastOff, '2026-11-02T00:00:00Z')
     assert.equal(v.rate, null)
     assert.equal(v.movedTotal, null)
+  })
+})
+
+describe('summarizeVessels', () => {
+  it('totals the fleet and averages every voyage rate', () => {
+    const out = summarizeVessels(groupVoyagesByVessel([
+      row({ id: 1, vessel: 'A', tb: 't1', voyageRateMtH: 300, voyageActiveRateMtH: 320 }),
+      row({ id: 2, vessel: 'A', tb: 't2', voyageRateMtH: 100, voyageActiveRateMtH: 120 }),
+      row({ id: 3, vessel: 'B', tb: 't3', voyageRateMtH: 200, voyageActiveRateMtH: 250 }),
+    ]))
+    assert.equal(out.vessels, 2)
+    assert.equal(out.voyages, 3)
+    assert.equal(out.rate, 200)
+    assert.equal(out.activeRate, 230)
+    assert.equal(out.rateScaleMax, 320)
+    assert.equal(out.moved, null)
   })
 })

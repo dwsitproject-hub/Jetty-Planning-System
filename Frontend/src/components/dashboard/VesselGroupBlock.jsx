@@ -1,52 +1,21 @@
 /**
- * By Vessel: one row per vessel (loading and unloading together); a row opens its voyages.
+ * By Vessel: summary strip + one row per vessel (loading and unloading together); a row opens its detail.
  */
 import { Fragment, useCallback, useMemo, useState } from 'react'
-import { groupVoyagesByVessel } from '../../utils/managementDashboardByVessel.js'
+import { groupVoyagesByVessel, summarizeVessels } from '../../utils/managementDashboardByVessel.js'
 import { sortModalRows } from '../../utils/widgetDetailSort.js'
-import { castOffSortTimestamp, fmtMgmtCastOffDate } from '../../utils/managementDashboardMetricEvidence.js'
-import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
-import { SortHeader, VoyageBlock, statusChip, statusLabel, voyageTdClass } from './VoyageDrilldownTable.jsx'
-
-const fmtNum = (n, d) => (n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d }))
-const fmtRate = (n) => (n == null ? '—' : `${fmtNum(n, 1)} MT/h`)
-const vesselStatus = (v) => (v.alongside ? statusLabel(v.alongside) : 'Sailed')
+import VesselDetail from './VesselDetail.jsx'
+import { MovedBarCell, RateRangeCell } from './VesselRowVisuals.jsx'
+import VesselSummaryStrip from './VesselSummaryStrip.jsx'
+import { SortHeader, statusLabel } from './VoyageDrilldownTable.jsx'
 
 const COLUMNS = [
   { key: 'vessel', label: 'Vessel', sortValue: (v) => v.vessel },
   { key: 'voyages', label: 'Voyages', align: 'right', sortValue: (v) => v.callCount },
-  { key: 'commodity', label: 'Commodity', sortValue: (v) => v.movedLines.map((l) => l.label).join(', ') },
   { key: 'moved', label: 'Moved (MT)', align: 'right', sortValue: (v) => v.movedTotal },
-  { key: 'wait', label: 'Avg wait', align: 'right', sortValue: (v) => v.wait },
-  { key: 'pre', label: 'Avg berth → start cargo', align: 'right', sortValue: (v) => v.pre },
   { key: 'flow', label: 'Avg achieved rate', headerLines: ['Avg achieved', 'rate'], align: 'right', sortValue: (v) => v.rate },
   { key: 'activeFlow', label: 'Avg active rate', headerLines: ['Avg active', 'rate'], align: 'right', sortValue: (v) => v.activeRate },
-  { key: 'downtime', label: 'Total downtime (h)', align: 'right', sortValue: (v) => v.downtimeH },
-  {
-    key: 'cargoDoneToSail',
-    label: 'Avg cargo done → sailed off',
-    headerLines: ['Avg cargo done →', 'sailed off'],
-    align: 'right',
-    sortValue: (v) => v.cargoDoneToSailH,
-  },
-  {
-    key: 'dateCompleted',
-    label: 'Last completed',
-    headerLines: ['Last', 'completed'],
-    align: 'right',
-    sortValue: (v) => castOffSortTimestamp(v.lastCastOff),
-  },
-  { key: 'status', label: 'Status', sortValue: vesselStatus },
 ]
-
-function LinesCell({ lines, pick }) {
-  if (!lines.length) return '—'
-  return (
-    <span className="mgmt-voyage-pair">
-      {lines.map((l, i) => <span key={`${l.label}-${i}`}>{pick(l)}</span>)}
-    </span>
-  )
-}
 
 function callMix(v) {
   const parts = []
@@ -55,17 +24,15 @@ function callMix(v) {
   return parts.join(' · ')
 }
 
-/** Downtime comes from the pumped / cleaned / downtime breakdown, so it shows only while that switch is on. */
-const columnsFor = (breakdown) => (breakdown ? COLUMNS : COLUMNS.filter((c) => c.key !== 'downtime'))
-
-function vesselCells(v, open) {
+function vesselCells(v, open, summary) {
   return {
     vessel: (
       <td>
         <span className="mgmt-vessel-row__caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
         <b>{v.vessel}</b>
+        {v.alongside ? <span className="mgmt-vdot" title={`At berth now · ${statusLabel(v.alongside)}`} /> : null}
         <br />
-        <span className="text-steel" style={{ fontSize: 11 }}>{v.jetties.join(', ') || '—'}</span>
+        <span className="text-steel" style={{ fontSize: 11 }}>{v.movedLines.map((l) => l.label).join(' · ') || '—'}</span>
       </td>
     ),
     voyages: (
@@ -75,50 +42,44 @@ function vesselCells(v, open) {
         <span className="text-steel" style={{ fontSize: 11 }}>{callMix(v)}</span>
       </td>
     ),
-    commodity: <td><LinesCell lines={v.movedLines} pick={(l) => l.label} /></td>,
-    moved: <td className="mgmt-r mgmt-moved"><LinesCell lines={v.movedLines} pick={(l) => fmtNum(l.qty, 0)} /></td>,
-    wait: <td className={voyageTdClass('wait')}>{fmtMgmtDurationDays(v.wait)}</td>,
-    pre: <td className={voyageTdClass('pre')}>{fmtMgmtDurationDays(v.pre)}</td>,
-    flow: <td className={voyageTdClass('flow')}>{fmtRate(v.rate)}</td>,
-    activeFlow: <td className={voyageTdClass('activeFlow')}>{fmtRate(v.activeRate)}</td>,
-    downtime: <td className={voyageTdClass('downtime')}>{v.downtimeH == null ? '—' : `${fmtNum(v.downtimeH, 1)} h`}</td>,
-    cargoDoneToSail: <td className={voyageTdClass('cargoDoneToSail')}>{fmtMgmtDurationHours(v.cargoDoneToSailH)}</td>,
-    dateCompleted: <td className={voyageTdClass('dateCompleted')}>{fmtMgmtCastOffDate(v.lastCastOff)}</td>,
-    status: <td>{v.alongside ? statusChip(v.alongside) : <span className="mgmt-chip mgmt-chip--ghost">Sailed</span>}</td>,
+    moved: <td className="mgmt-r mgmt-moved"><MovedBarCell total={v.movedTotal} scaleMax={summary.movedScaleMax} /></td>,
+    flow: <td className="mgmt-r"><RateRangeCell value={v.rate} range={v.rateRange} scaleMax={summary.rateScaleMax} /></td>,
+    activeFlow: <td className="mgmt-r"><RateRangeCell value={v.activeRate} range={v.activeRateRange} scaleMax={summary.rateScaleMax} /></td>,
   }
 }
 
 export default function VesselGroupBlock({ rows, voyageBlockProps }) {
   const vessels = useMemo(() => groupVoyagesByVessel(rows), [rows])
-  const columns = useMemo(() => columnsFor(voyageBlockProps?.breakdown), [voyageBlockProps?.breakdown])
+  const summary = useMemo(() => summarizeVessels(vessels), [vessels])
   const [sort, setSort] = useState(null)
   const [openKey, setOpenKey] = useState(null)
   const onSort = useCallback((key) => {
     setSort((prev) => (prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
   }, [])
-  const sorted = useMemo(() => sortModalRows(vessels, columns, sort), [vessels, columns, sort])
+  const sorted = useMemo(() => sortModalRows(vessels, COLUMNS, sort), [vessels, sort])
   const toggle = (key) => setOpenKey((prev) => (prev === key ? null : key))
 
   if (!sorted.length) return <p className="text-steel">No vessels in this view.</p>
 
   return (
     <div className="mgmt-product-block">
+      <VesselSummaryStrip summary={summary} />
       <div className="table-wrap">
-        <table className="data-table mgmt-product-voyage-table">
+        <table className="data-table mgmt-product-voyage-table mgmt-vessel-table">
           <thead>
-            <tr>{columns.map((c) => <SortHeader key={c.key} column={c} sort={sort} onSort={onSort} />)}</tr>
+            <tr>{COLUMNS.map((c) => <SortHeader key={c.key} column={c} sort={sort} onSort={onSort} />)}</tr>
           </thead>
           <tbody>
             {sorted.map((v) => {
               const open = openKey === v.key
-              const cells = vesselCells(v, open)
+              const cells = vesselCells(v, open, summary)
               return (
                 <Fragment key={v.key}>
                   <tr
                     className={`mgmt-vessel-row${open ? ' mgmt-vessel-row--open' : ''}`}
                     tabIndex={0}
                     aria-expanded={open}
-                    title="Show this vessel's voyages"
+                    title="Show this vessel's details"
                     onClick={() => toggle(v.key)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -127,12 +88,12 @@ export default function VesselGroupBlock({ rows, voyageBlockProps }) {
                       }
                     }}
                   >
-                    {columns.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
+                    {COLUMNS.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
                   </tr>
                   {open ? (
                     <tr className="mgmt-vessel-row__voyages">
-                      <td colSpan={columns.length}>
-                        <VoyageBlock rows={v.voyages} {...voyageBlockProps} />
+                      <td colSpan={COLUMNS.length}>
+                        <VesselDetail vessel={v} voyageBlockProps={voyageBlockProps} />
                       </td>
                     </tr>
                   ) : null}
@@ -142,6 +103,9 @@ export default function VesselGroupBlock({ rows, voyageBlockProps }) {
           </tbody>
         </table>
       </div>
+      <p className="text-steel mgmt-sub mgmt-vessel-note">
+        <span className="mgmt-vdot" /> At berth now · Line under a rate: slowest to fastest voyage, dot = average · click a vessel for its time split and voyages
+      </p>
     </div>
   )
 }
