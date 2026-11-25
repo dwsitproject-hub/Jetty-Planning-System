@@ -117,3 +117,14 @@ test('no moved qty or window gives empty figures', () => {
   assert.equal(r.kuras.rateMtH, null);
   assert.equal(r.stopHours.total, 0);
 });
+
+test('detected stops without a reason are summed in hours', () => {
+  const r = buildRateBreakdown({
+    ...base,
+    movedQty: 500,
+    lines: [line(1, 0, 10, 500)],
+    unexplained: [{ minutes: 90 }, { minutes: 150 }],
+    events: [],
+  });
+  assert.equal(r.unexplainedHours, 4);
+});

@@ -71,3 +71,11 @@ test('evidence sections list quantities, rates and hours; none without a breakdo
   assert.equal(flat['Waiting overtime'], '2 h')
   assert.equal(flat['No Reason'], '1.5 h')
 })
+
+test('stops without a reason become their own segment, taken from pumping, total unchanged', () => {
+  const wf = buildBerthHourSegments([{ ...row, unexplainedHours: 1.5 }], { split: true })
+  const by = Object.fromEntries(wf.segs.map((s) => [s.n, s.v]))
+  assert.equal(by.Pumping, 2.5)
+  assert.equal(by['No reason yet'], 1.5)
+  assert.equal(sum(wf.segs), 14)
+})

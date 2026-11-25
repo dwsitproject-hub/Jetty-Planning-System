@@ -31,5 +31,6 @@ function breakdownFields(b) {
     stopHoursBefore: b.stopHours?.before ?? 0,
     stopHoursDuring: b.stopHours?.during ?? 0,
     stopHoursAfter: b.stopHours?.after ?? 0,
+    unexplainedHours: b.unexplainedHours ?? 0,
   }
 }

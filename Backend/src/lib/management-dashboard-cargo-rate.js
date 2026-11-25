@@ -248,6 +248,7 @@ export async function computeCargoRatesBulk(db, operationIds, opts = {}) {
               lines: extra.lines.get(id) || [],
               hoursByLine: extra.hoursByLine,
               events: extra.events.get(id) || [],
+              unexplained: extra.unexplained.get(id) || [],
               nowMs: opts.nowMs,
             });
           }

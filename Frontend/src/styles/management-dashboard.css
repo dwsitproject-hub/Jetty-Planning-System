@@ -836,4 +836,5 @@
 .mgmt-rate-breakdown__track span{display:block;height:100%}
 .mgmt-rate-breakdown__row--track{grid-template-columns:150px 180px 64px 44px}
 .wf-stop{background:repeating-linear-gradient(135deg,var(--mg-crit) 0 4px,#8f1e18 4px 8px)}
+.wf-noreason{background:#8b8a85;opacity:.6}
 .wf-idle--soft{background:var(--mg-warn);opacity:.55}

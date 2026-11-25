@@ -1,7 +1,8 @@
 /**
  * "Where the berth hours go": average sailed voyage split into phases.
  * Default view is unchanged. With `split` (net-rate feature) the recorded stop hours are taken
- * out of the phase they fall in and shown as their own "Stopped" segment, and "Cargo operations"
+ * out of the phase they fall in and shown as their own "Stopped" segment (stops still without a
+ * reason get a "No reason yet" segment taken from the pumping window), and "Cargo operations"
  * becomes "Pumping" (cargo window minus stops during cargo).
  */
 import { cargoDoneToSailDisplayHours, idleHoursAtBerth } from './managementDashboardCargoDone.js'
@@ -15,6 +16,11 @@ export function rowStopParts(r) {
     during: clamp(r.stopHoursDuring, r.opsH),
     after: clamp(r.stopHoursAfter, cargoDoneToSailDisplayHours(r)),
   }
+}
+
+/** Detected stops without a reason: taken from the pumping window, next to the recorded ones. */
+export function rowUnexplainedHours(r) {
+  return clamp(r.unexplainedHours, (Number(r.opsH) || 0) - rowStopParts(r).during)
 }
 
 const num = (v) => (v == null ? null : Number(v))
@@ -36,7 +42,7 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
     ? [
         wait,
         { n: 'Berth → start cargo', cls: 'wf-pre', getVal: (r) => num(r.pre) == null ? null : r.pre - rowStopParts(r).before },
-        { n: 'Pumping', cls: opsCls, getVal: (r) => num(r.opsH) == null ? null : r.opsH - rowStopParts(r).during },
+        { n: 'Pumping', cls: opsCls, getVal: (r) => num(r.opsH) == null ? null : r.opsH - rowStopParts(r).during - rowUnexplainedHours(r) },
         {
           n: 'Stopped (recorded)',
           cls: 'wf-stop',
@@ -45,6 +51,7 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
             return p.before + p.during + p.after
           },
         },
+        { n: 'No reason yet', cls: 'wf-noreason', getVal: rowUnexplainedHours },
         { ...idle, n: 'Idle, no stop recorded', cls: 'wf-idle wf-idle--soft' },
         {
           n: 'Cargo done → sailed off',

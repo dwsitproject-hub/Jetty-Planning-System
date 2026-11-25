@@ -8,6 +8,7 @@
  * All figures are MT; the qty split uses line-qty shares so the unit of the SI does not matter.
  */
 import { summarizeStops } from './no-flow-metrics.js';
+import { loadUnexplainedStopsByOperation } from './no-flow-unexplained.js';
 
 const HOUR_MS = 3600000;
 const ms = (v) => (v == null ? NaN : new Date(v).getTime());
@@ -68,10 +69,11 @@ function kurasQtyOfLine(line, split, hourly) {
  *                  movementType?: string|null, kurasStartedAt?: string|null }>,
  *   hoursByLine?: Map<number, Array<{ hourStart: string, hourEnd: string, qtyMoved: number }>>,
  *   events: Array<{ startedAt: string, endedAt: string|null, reasonCode?: string, category?: string }>,
+ *   unexplained?: Array<{ minutes: number }>,
  *   nowMs?: number,
  * }} input
  */
-export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, lines = [], hoursByLine = new Map(), events = [], nowMs = Date.now() }) {
+export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, lines = [], hoursByLine = new Map(), events = [], unexplained = [], nowMs = Date.now() }) {
   const moved = Number(movedQty) || 0;
   const endMs = ms(lastLoggedAt);
 
@@ -146,6 +148,8 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
       total: round2(stops.totalHours) ?? 0,
     },
     stopCount: stops.stops.length,
+    // detected stops (gaps, flat ATG) that still need a reason, in hours
+    unexplainedHours: round2(unexplained.reduce((t, u) => t + (Number(u.minutes) || 0), 0) / 60) ?? 0,
     normal: { qty: round2(normalQty), hours: round2(normalHours), rateMtH: rate(normalQty, normalHours) },
     kuras: {
       qty: round2(kurasQty),
@@ -165,7 +169,7 @@ const toIso = (v) => (v ? new Date(v).toISOString() : null);
  */
 export async function loadRateBreakdownInputs(db, operationIds) {
   const ids = (operationIds || []).map(Number).filter((n) => n > 0);
-  const out = { lines: new Map(), hoursByLine: new Map(), events: new Map() };
+  const out = { lines: new Map(), hoursByLine: new Map(), events: new Map(), unexplained: new Map() };
   if (!ids.length) return out;
 
   const [linesR, eventsR] = await Promise.all([
@@ -211,6 +215,7 @@ export async function loadRateBreakdownInputs(db, operationIds) {
       reasonNameEn: row.name_en,
     });
   }
+  out.unexplained = await loadUnexplainedStopsByOperation(db, ids);
   if (splitLineIds.length) {
     const hoursR = await db.query(
       `SELECT load_line_id, hour_start, hour_end, qty_moved
