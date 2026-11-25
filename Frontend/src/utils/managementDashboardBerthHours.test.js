@@ -79,3 +79,19 @@ test('stops without a reason become their own segment, taken from pumping, total
   assert.equal(by['No reason yet'], 1.5)
   assert.equal(sum(wf.segs), 14)
 })
+
+test('with a rate breakdown, pumping uses the cargo window of the entries and idle shrinks', () => {
+  const r = { ...row, opsH: 1, rateBreakdown: {}, voyageLoggedHours: 6 }
+  const wf = buildBerthHourSegments([r], { split: true })
+  const by = Object.fromEntries(wf.segs.map((s) => [s.n, s.v]))
+  assert.equal(by.Pumping, 4)
+  assert.equal(by['Idle, no stop recorded'], 1)
+  assert.equal(sum(wf.segs), 14)
+})
+
+test('anchorage wait carries its median', () => {
+  const rows = [{ ...row, wait: 1 }, { ...row, wait: 2 }, { ...row, wait: 100 }]
+  const wf = buildBerthHourSegments(rows)
+  assert.equal(wf.segs[0].med, 2)
+  assert.equal(wf.segs[1].med, null)
+})

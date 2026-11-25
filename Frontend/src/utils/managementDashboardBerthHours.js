@@ -9,18 +9,31 @@ import { cargoDoneToSailDisplayHours, idleHoursAtBerth } from './managementDashb
 
 const clamp = (v, max) => Math.min(Math.max(Number(v) || 0, 0), Math.max(Number(max) || 0, 0))
 
+/**
+ * Cargo hours of a voyage. With the rate breakdown (net-rate feature) this is the cargo window of the
+ * entries (first start → last end, as in the By Voyage table); the cargo-operations activity record is
+ * often a short marker and would leave most of the stay looking idle.
+ */
+export function rowOpsHours(r) {
+  const logged = Number(r?.voyageLoggedHours)
+  if (r?.rateBreakdown && Number.isFinite(logged) && logged >= 0) {
+    return Number.isFinite(Number(r.berth)) ? Math.min(logged, Number(r.berth)) : logged
+  }
+  return r?.opsH
+}
+
 /** Recorded stop hours of a row, each limited to the phase it sits in so the bar still adds up. */
 export function rowStopParts(r) {
   return {
     before: clamp(r.stopHoursBefore, r.pre),
-    during: clamp(r.stopHoursDuring, r.opsH),
+    during: clamp(r.stopHoursDuring, rowOpsHours(r)),
     after: clamp(r.stopHoursAfter, cargoDoneToSailDisplayHours(r)),
   }
 }
 
 /** Detected stops without a reason: taken from the pumping window, next to the recorded ones. */
 export function rowUnexplainedHours(r) {
-  return clamp(r.unexplainedHours, (Number(r.opsH) || 0) - rowStopParts(r).during)
+  return clamp(r.unexplainedHours, (Number(rowOpsHours(r)) || 0) - rowStopParts(r).during)
 }
 
 const num = (v) => (v == null ? null : Number(v))
@@ -42,7 +55,7 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
     ? [
         wait,
         { n: 'Berth → start cargo', cls: 'wf-pre', getVal: (r) => num(r.pre) == null ? null : r.pre - rowStopParts(r).before },
-        { n: 'Pumping', cls: opsCls, getVal: (r) => num(r.opsH) == null ? null : r.opsH - rowStopParts(r).during - rowUnexplainedHours(r) },
+        { n: 'Pumping', cls: opsCls, getVal: (r) => num(rowOpsHours(r)) == null ? null : rowOpsHours(r) - rowStopParts(r).during - rowUnexplainedHours(r) },
         {
           n: 'Stopped (recorded)',
           cls: 'wf-stop',
@@ -52,7 +65,14 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
           },
         },
         { n: 'No reason yet', cls: 'wf-noreason', getVal: rowUnexplainedHours },
-        { ...idle, n: 'Idle, no stop recorded', cls: 'wf-idle wf-idle--soft' },
+        {
+          n: 'Idle, no stop recorded',
+          cls: 'wf-idle wf-idle--soft',
+          getVal: (r) => {
+            if (r?.berth == null || !Number.isFinite(r.berth)) return null
+            return Math.max(r.berth - (r.pre || 0) - (rowOpsHours(r) || 0) - (cargoDoneToSailDisplayHours(r) || 0), 0)
+          },
+        },
         {
           n: 'Cargo done → sailed off',
           cls: 'wf-post',
@@ -70,10 +90,16 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
         { n: 'Cargo done → sailed off', cls: 'wf-post', getVal: cargoDoneToSailDisplayHours },
       ];
 
-  const withValues = segs.map((s) => ({ ...s, v: avg(s.getVal) }));
+  const median = (f) => {
+    const a = rows.map(f).filter((x) => x != null).sort((x, y) => x - y)
+    if (!a.length) return null
+    const m = Math.floor(a.length / 2)
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2
+  }
+  const withValues = segs.map((s) => ({ ...s, v: avg(s.getVal), med: s === wait ? median(s.getVal) : null }));
   const waitAvg = avg((r) => r.wait);
   const berthAvg = avg((r) => r.berth);
-  const opsAvg = avg((r) => r.opsH);
+  const opsAvg = avg(split ? rowOpsHours : (r) => r.opsH);
   return {
     segs: withValues,
     total: withValues.reduce((s, x) => s + x.v, 0),

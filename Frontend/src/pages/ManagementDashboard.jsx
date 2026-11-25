@@ -911,7 +911,7 @@ export default function ManagementDashboard() {
                         onClick={() => openWfDetail(s)}
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openWfDetail(s) } }}
                       >
-                        <i className={`mgmt-sw ${s.cls}`} />{s.n} · <b>{fmt(s.v, 1)} h</b>
+                        <i className={`mgmt-sw ${s.cls}`} />{s.n} · <b>{fmt(s.v, 1)} h</b>{s.med != null ? <> avg · median <b>{fmt(s.med, 1)} h</b></> : null}
                       </span>
                     ))}
                   </div>
