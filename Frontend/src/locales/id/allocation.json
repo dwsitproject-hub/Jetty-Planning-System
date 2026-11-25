@@ -16,6 +16,7 @@
   "ganttLegendPlanned": "Rencana",
   "ganttLegendActual": "Aktual",
   "ganttShowStops": "Tampilkan henti",
+  "ganttLegendStopNoReason": "Henti, belum ada alasan",
   "ganttLegendSailed": "Sudah berlayar",
   "ganttLegendNow": "Sekarang",
   "ganttLateChip": "TERLAMBAT",

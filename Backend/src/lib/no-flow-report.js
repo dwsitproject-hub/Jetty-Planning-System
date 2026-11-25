@@ -4,6 +4,11 @@
  * berth time uses the same cut, so a voyage crossing the period edge counts only its part inside.
  */
 import { summarizeStops } from './no-flow-metrics.js';
+import { loadUnexplainedStopsByOperation } from './no-flow-unexplained.js';
+
+/** Detected stops that still have no reason are reported as this pseudo reason. */
+export const NO_REASON_CODE = 'NO_REASON';
+export const NO_REASON_CATEGORY = 'unexplained';
 
 const HOUR_MS = 3600000;
 const ms = (v) => (v == null ? NaN : new Date(v).getTime());
@@ -37,11 +42,27 @@ const sortedDesc = (map) => [...map.values()].sort((a, b) => b.hours - a.hours);
  *                    tb: string|null, castOff: string|null, cargoStart: string|null, cargoEnd: string|null }>,
  *   events: Array<{ id: number, operationId: number, startedAt: string, endedAt: string|null, reasonCode: string,
  *                   reasonNameEn: string, reasonNameId: string, category: string, note: string|null, source: string }>,
+ *   unexplained?: Array<{ operationId: number, startedAt: string, endedAt: string, source: 'gap'|'atg_flat' }>,
  *   range: { from: string, to: string },
  *   nowMs?: number,
  * }} input
  */
-export function buildNoFlowReport({ voyages = [], events = [], range, nowMs = Date.now() }) {
+export function buildNoFlowReport({ voyages = [], events: recorded = [], unexplained = [], range, nowMs = Date.now() }) {
+  const events = [
+    ...recorded,
+    ...unexplained.map((u) => ({
+      id: `nr-${u.operationId}-${new Date(u.startedAt).getTime()}`,
+      operationId: u.operationId,
+      startedAt: u.startedAt,
+      endedAt: u.endedAt,
+      reasonCode: NO_REASON_CODE,
+      reasonNameEn: 'No reason yet',
+      reasonNameId: 'Belum ada alasan',
+      category: NO_REASON_CATEGORY,
+      note: null,
+      source: u.source,
+    })),
+  ];
   const fromMs = ms(range.from);
   const toMs = ms(range.to);
   const voyageById = new Map(voyages.map((v) => [v.id, v]));
@@ -100,6 +121,7 @@ export function buildNoFlowReport({ voyages = [], events = [], range, nowMs = Da
         purpose: voyage.purpose ?? null,
         startedAt: stop.startedAt,
         endedAt: stop.endedAt,
+        needsReason: stop.reasonCode === NO_REASON_CODE,
         isOpen: !stop.endedAt,
         hours: round2(stop.hours),
         phase: stopPhaseLabel(stop.phaseHours),
@@ -117,6 +139,8 @@ export function buildNoFlowReport({ voyages = [], events = [], range, nowMs = Da
     code: r.code, nameEn: r.nameEn, nameId: r.nameId, category: r.category,
     hours: round2(r.hours), count: r.count, pct: totalHours > 0 ? round2((r.hours / totalHours) * 100) : 0,
   }));
+  const explainedReasons = reasons.filter((r) => r.code !== NO_REASON_CODE);
+  const noReason = reasons.find((r) => r.code === NO_REASON_CODE);
   const voyageRows = [...byVoyage.values()]
     .map((r) => ({ ...r, totalHours: round2(r.totalHours) }))
     .sort((a, b) => b.totalHours - a.totalHours);
@@ -130,7 +154,10 @@ export function buildNoFlowReport({ voyages = [], events = [], range, nowMs = Da
       stopCount: stops.length,
       voyagesWithStops: voyageRows.length,
       voyagesBerthed: berthedIds.size,
-      biggestReason: reasons[0] ? { code: reasons[0].code, nameEn: reasons[0].nameEn, nameId: reasons[0].nameId, hours: reasons[0].hours, pct: reasons[0].pct } : null,
+      explainedHours: round2(totalHours - (noReason ? noReason.hours : 0)),
+      unexplainedHours: noReason ? noReason.hours : 0,
+      unexplainedCount: noReason ? noReason.count : 0,
+      biggestReason: explainedReasons[0] ? { code: explainedReasons[0].code, nameEn: explainedReasons[0].nameEn, nameId: explainedReasons[0].nameId, hours: explainedReasons[0].hours, pct: explainedReasons[0].pct } : null,
     },
     byReason: reasons,
     byCategory: sortedDesc(byCategory).map((c) => ({ category: c.key, hours: round2(c.hours), count: c.count })),
@@ -212,6 +239,12 @@ export async function loadNoFlowReportInputs(db, { portId, from, to, purpose = n
     }
   }
 
+  const unexplainedByOp = await loadUnexplainedStopsByOperation(db, ids);
+  const unexplained = [];
+  for (const [operationId, list] of unexplainedByOp) {
+    for (const u of list) unexplained.push({ operationId, startedAt: u.startedAt, endedAt: u.endedAt, source: u.source });
+  }
+
   const events = eventsR.rows.map((e) => ({
     id: Number(e.id),
     operationId: Number(e.operation_id),
@@ -224,5 +257,5 @@ export async function loadNoFlowReportInputs(db, { portId, from, to, purpose = n
     note: e.note ?? null,
     source: e.source,
   }));
-  return { voyages: [...voyageMap.values()], events };
+  return { voyages: [...voyageMap.values()], events, unexplained };
 }

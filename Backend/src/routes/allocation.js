@@ -1038,7 +1038,7 @@ export async function buildAllocationOverviewPayload(selectedPortId) {
     row.qc_decisions = id != null ? decisions.get(id) || [] : [];
   }
   if (isFeatureOn('ganttStops')) {
-    const stopsByOp = await loadGanttStopsByOperation(pool, decisionOps.map((r) => r.operation_id));
+    const stopsByOp = await loadGanttStopsByOperation(pool, decisionOps.map((r) => r.operation_id), { withUnexplained: true });
     for (const row of decisionOps) row.no_flow_stops = stopsByOp.get(Number(row.operation_id)) || [];
   }
   const mapRow = (r) => attachBerthingEligibility(formatListRow(r), berthingByPlan);

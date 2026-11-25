@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs'
 import { buildVesselReasonMatrix, reportReasonLabel } from '../utils/noFlowReportView.js'
 
 const PHASE_LABEL = { before: 'Before cargo', during: 'During cargo', after: 'After cargo', mixed: 'Several phases' }
-const CATEGORY_LABEL = { terminal: 'Terminal', vessel: 'Vessel', kuras_crew: 'Kuras crew', external: 'External', other: 'Other' }
+const CATEGORY_LABEL = { terminal: 'Terminal', vessel: 'Vessel', kuras_crew: 'Kuras crew', external: 'External', other: 'Other', unexplained: 'No reason yet' }
 
 const bold = { bold: true }
 

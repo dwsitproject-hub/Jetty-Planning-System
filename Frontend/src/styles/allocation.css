@@ -8713,14 +8713,23 @@ tr.cargo-schedule-behind > td:first-child {
   bottom: 0;
   min-width: 3px;
   pointer-events: auto;
-  background: repeating-linear-gradient(135deg, #e24b4a 0 3px, #a32d2d 3px 6px);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+  /* translucent so the bar text stays readable underneath */
+  background: repeating-linear-gradient(135deg, rgba(226, 75, 74, 0.38) 0 3px, rgba(163, 45, 45, 0.38) 3px 6px);
+  box-shadow: inset 0 0 0 1px rgba(163, 45, 45, 0.5);
+}
+.jetty-schedule-gantt__stop--needs-reason {
+  background: rgba(110, 110, 105, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(110, 110, 105, 0.5);
 }
 .jetty-schedule-gantt__stop--open {
   border-right: 2px dashed #fff;
 }
 .jetty-schedule-gantt__swatch--stop {
-  background: repeating-linear-gradient(135deg, #e24b4a 0 3px, #a32d2d 3px 6px);
+  background: repeating-linear-gradient(135deg, rgba(226, 75, 74, 0.55) 0 3px, rgba(163, 45, 45, 0.55) 3px 6px);
+}
+.jetty-schedule-gantt__swatch--stop-open {
+  background: rgba(110, 110, 105, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(110, 110, 105, 0.6);
 }
 .jetty-schedule-gantt__stops-toggle {
   display: inline-flex;

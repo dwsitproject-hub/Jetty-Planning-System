@@ -30,3 +30,10 @@ test('hover text names the reason, who caused it, length and note', () => {
   const [open] = buildStopMarks([stop('o', 6, null)], t0, t0 + 10 * H, t0 + 8 * H)
   assert.match(stopMarkTitle(open, 'en', fmt), /in progress/)
 })
+
+test('a stop that still needs a reason has a plain title without a cause', async () => {
+  const { stopMarkTitle } = await import('./ganttStopMarks.js')
+  const mark = { hours: 2, stop: { needsReason: true, reasonNameEn: 'No reason yet', reasonNameId: 'Belum ada alasan', category: 'unexplained', startedAt: '2026-11-14T01:00:00Z', endedAt: '2026-11-14T03:00:00Z' } }
+  const title = stopMarkTitle(mark, 'en', (v) => `@${v}`)
+  assert.equal(title.split('\n')[0], 'No reason yet')
+})

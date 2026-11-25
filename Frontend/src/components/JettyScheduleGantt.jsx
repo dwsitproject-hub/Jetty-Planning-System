@@ -1433,6 +1433,12 @@ export default function JettyScheduleGantt({
           {tAlloc('ganttShowStops', { defaultValue: 'Show stops' })}
         </label>
       ) : null}
+      {features.ganttStops && showStops ? (
+        <span className="allocation-schedule__legend-item">
+          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--stop-open" />
+          {tAlloc('ganttLegendStopNoReason', { defaultValue: 'Stop, no reason yet' })}
+        </span>
+      ) : null}
       {isPlanProfile ? (
         <>
           <span className="allocation-schedule__legend-item">

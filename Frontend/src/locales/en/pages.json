@@ -225,6 +225,7 @@
   "noFlowCategory_vessel": "Vessel",
   "noFlowCategory_kuras_crew": "Kuras crew",
   "noFlowCategory_external": "External",
+  "noFlowCategory_unexplained": "No reason yet",
   "noFlowCategory_other": "Other",
   "noFlowNoteLabel": "Note (optional)",
   "noFlowNoteRequiredLabel": "Note (required)",

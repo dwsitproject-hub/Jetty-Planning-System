@@ -5,7 +5,7 @@ import { CATEGORY_COLORS, CATEGORY_ORDER, reportReasonLabel } from '../../utils/
 
 const fmt = (n, d = 1) => Number(n).toLocaleString('en-US', { maximumFractionDigits: d })
 const PURPOSE_FILTER = { Loading: 'Loading', Unloading: 'Unloading' }
-const CATEGORY_LABELS = { terminal: 'Terminal', vessel: 'Vessel', kuras_crew: 'Kuras crew', external: 'External', other: 'Other' }
+const CATEGORY_LABELS = { terminal: 'Terminal', vessel: 'Vessel', kuras_crew: 'Kuras crew', external: 'External', other: 'Other', unexplained: 'No reason yet' }
 
 /**
  * Management Dashboard card "Where the stop hours go" (stops and delays report switch).
@@ -35,7 +35,7 @@ export default function StopHoursCard({ range, purpose }) {
     <section className="card mgmt-sec">
       <h2 className="card__title">Where the stop hours go</h2>
       <p className="text-steel mgmt-sub">
-        Recorded stops in the period, by reason · colour = who caused it ·{' '}
+        Stops in the period, by reason (grey = no reason yet) · colour = who caused it ·{' '}
         <Link to={link} className="link">Open full report</Link>
       </p>
       {error ? <p className="text-steel">The stops report could not be loaded.</p> : null}
@@ -52,7 +52,7 @@ export default function StopHoursCard({ range, purpose }) {
             <div className="stops-tile">
               <span className="stops-tile__label">Stops recorded</span>
               <b className="stops-tile__value">{s.stopCount}</b>
-              <span className="stops-tile__sub">{s.voyagesWithStops} voyages</span>
+              <span className="stops-tile__sub">{s.voyagesWithStops} voyages{s.unexplainedCount > 0 ? ` · ${s.unexplainedCount} need a reason (${fmt(s.unexplainedHours)} h)` : ''}</span>
             </div>
             <div className="stops-tile">
               <span className="stops-tile__label">Biggest cause</span>

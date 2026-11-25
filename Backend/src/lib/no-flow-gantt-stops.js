@@ -3,6 +3,8 @@
  * bars (red marks). Sent only while FEATURE_GANTT_STOPS is on.
  */
 
+import { loadUnexplainedStopsByOperation } from './no-flow-unexplained.js';
+
 const toIso = (v) => (v ? new Date(v).toISOString() : null);
 
 /** One stop row → Gantt mark. An open stop (no end) runs until now on the client. */
@@ -21,9 +23,10 @@ export function mapGanttStop(row) {
 }
 
 /**
+ * With withUnexplained, detected stops that still need a reason are added as marks with needsReason.
  * @returns {Promise<Map<number, Array<ReturnType<typeof mapGanttStop>>>>} stops per operation, oldest first
  */
-export async function loadGanttStopsByOperation(db, operationIds) {
+export async function loadGanttStopsByOperation(db, operationIds, { withUnexplained = false } = {}) {
   const ids = [...new Set((operationIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
   const out = new Map();
   if (!ids.length) return out;
@@ -40,6 +43,27 @@ export async function loadGanttStopsByOperation(db, operationIds) {
     const opId = Number(row.operation_id);
     if (!out.has(opId)) out.set(opId, []);
     out.get(opId).push(mapGanttStop(row));
+  }
+  if (withUnexplained) {
+    const unexplained = await loadUnexplainedStopsByOperation(db, ids);
+    for (const [opId, list] of unexplained) {
+      if (!out.has(opId)) out.set(opId, []);
+      for (const u of list) {
+        out.get(opId).push({
+          id: `nr-${opId}-${new Date(u.startedAt).getTime()}`,
+          startedAt: u.startedAt,
+          endedAt: u.endedAt,
+          isOpen: false,
+          needsReason: true,
+          reasonCode: null,
+          reasonNameEn: 'No reason yet',
+          reasonNameId: 'Belum ada alasan',
+          category: 'unexplained',
+          note: null,
+        });
+      }
+      out.get(opId).sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
+    }
   }
   return out;
 }

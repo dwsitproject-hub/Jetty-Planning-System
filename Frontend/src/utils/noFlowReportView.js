@@ -3,13 +3,14 @@
  * Management Dashboard / report page as API instants.
  */
 
-export const CATEGORY_ORDER = ['terminal', 'vessel', 'kuras_crew', 'external', 'other']
+export const CATEGORY_ORDER = ['terminal', 'vessel', 'kuras_crew', 'external', 'other', 'unexplained']
 export const CATEGORY_COLORS = {
   terminal: '#1D9E75',
   vessel: '#7F77DD',
   kuras_crew: '#378ADD',
   external: '#D85A30',
   other: '#888780',
+  unexplained: '#B4B2A9',
 }
 export const API_MAX_DAYS = 366
 const DAY_MS = 86400000

@@ -20,7 +20,7 @@ export default function StopsSummaryTiles({ report }) {
         <div className="stops-tile">
           <span className="stops-tile__label">{t('stopsReportTileCount')}</span>
           <b className="stops-tile__value">{s.stopCount}</b>
-          <span className="stops-tile__sub">{t('stopsReportTileVoyages', { count: s.voyagesWithStops })}</span>
+          <span className="stops-tile__sub">{t('stopsReportTileVoyages', { count: s.voyagesWithStops })}{s.unexplainedCount > 0 ? ` · ${s.unexplainedCount} need a reason (${fmt(s.unexplainedHours)} h)` : ''}</span>
         </div>
         <div className="stops-tile">
           <span className="stops-tile__label">{t('stopsReportTileBiggest')}</span>

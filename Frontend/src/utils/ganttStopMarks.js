@@ -31,8 +31,8 @@ export function buildStopMarks(stops, barStartMs, barEndMs, nowMs = Date.now()) 
   return marks
 }
 
-const CATEGORY_EN = { terminal: 'Terminal', vessel: 'Vessel', kuras_crew: 'Kuras crew', external: 'External', other: 'Other' }
-const CATEGORY_ID = { terminal: 'Terminal', vessel: 'Kapal', kuras_crew: 'Tim kuras', external: 'Eksternal', other: 'Lainnya' }
+const CATEGORY_EN = { terminal: 'Terminal', vessel: 'Vessel', kuras_crew: 'Kuras crew', external: 'External', other: 'Other', unexplained: 'No reason yet' }
+const CATEGORY_ID = { terminal: 'Terminal', vessel: 'Kapal', kuras_crew: 'Tim kuras', external: 'Eksternal', other: 'Lainnya', unexplained: 'Belum ada alasan' }
 
 /** Hover text: reason, who caused it, length, times and note. */
 export function stopMarkTitle(mark, language, formatAt) {
@@ -41,7 +41,8 @@ export function stopMarkTitle(mark, language, formatAt) {
   const name = (id ? stop.reasonNameId : stop.reasonNameEn) || stop.reasonNameEn || stop.reasonNameId || stop.reasonCode
   const category = (id ? CATEGORY_ID : CATEGORY_EN)[stop.category] || stop.category
   const end = stop.endedAt ? formatAt(stop.endedAt) : id ? 'berlangsung' : 'in progress'
-  const lines = [`${name} · ${category}`, `${formatAt(stop.startedAt)} – ${end} · ${mark.hours.toFixed(1)} h`]
+  const head = stop.needsReason ? name : `${name} · ${category}`
+  const lines = [head, `${formatAt(stop.startedAt)} – ${end} · ${mark.hours.toFixed(1)} h`]
   if (stop.note) lines.push(stop.note)
   return lines.join('\n')
 }

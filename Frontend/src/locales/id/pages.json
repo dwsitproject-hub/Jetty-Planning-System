@@ -225,6 +225,7 @@
   "noFlowCategory_vessel": "Kapal",
   "noFlowCategory_kuras_crew": "Tim kuras",
   "noFlowCategory_external": "Eksternal",
+  "noFlowCategory_unexplained": "Belum ada alasan",
   "noFlowCategory_other": "Lainnya",
   "noFlowNoteLabel": "Catatan (opsional)",
   "noFlowNoteRequiredLabel": "Catatan (wajib)",

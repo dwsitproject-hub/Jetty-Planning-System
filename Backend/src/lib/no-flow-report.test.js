@@ -69,3 +69,25 @@ test('stop phase label', () => {
   assert.equal(stopPhaseLabel({ before: 1, during: 3, after: 0 }), 'mixed');
   assert.equal(stopPhaseLabel({ before: 0, during: 0, after: 0 }), 'during');
 });
+
+test('detected stops without a reason are reported as "No reason yet" and kept out of the biggest cause', () => {
+  const r = buildNoFlowReport({
+    voyages, range, nowMs,
+    events: [ev(1, 1, 20, 22, 'OVT', 'terminal')],
+    unexplained: [
+      { operationId: 1, startedAt: iso(25), endedAt: iso(31), source: 'gap' },
+      { operationId: 2, startedAt: iso(80), endedAt: iso(81), source: 'atg_flat' },
+    ],
+  });
+  assert.equal(r.summary.stopHours, 9);
+  assert.equal(r.summary.explainedHours, 2);
+  assert.equal(r.summary.unexplainedHours, 7);
+  assert.equal(r.summary.unexplainedCount, 2);
+  assert.equal(r.summary.biggestReason.code, 'OVT');
+  const nr = r.byReason.find((x) => x.code === 'NO_REASON');
+  assert.equal(nr.category, 'unexplained');
+  assert.equal(nr.hours, 7);
+  assert.equal(r.byReason[0].code, 'NO_REASON');
+  assert.deepEqual(r.byVoyage.find((v) => v.operationId === 1).byReason, { OVT: 2, NO_REASON: 6 });
+  assert.equal(r.stops.filter((s) => s.needsReason).length, 2);
+});

@@ -15,7 +15,7 @@ export default function GanttStopOverlay({ stops, barStartMs, barEndMs, nowMs })
       {marks.map((m) => (
         <span
           key={m.key}
-          className={`jetty-schedule-gantt__stop${m.stop.isOpen ? ' jetty-schedule-gantt__stop--open' : ''}`}
+          className={`jetty-schedule-gantt__stop${m.stop.isOpen ? ' jetty-schedule-gantt__stop--open' : ''}${m.stop.needsReason ? ' jetty-schedule-gantt__stop--needs-reason' : ''}`}
           style={{ left: `${m.leftPct}%`, width: `${m.widthPct}%` }}
           title={stopMarkTitle(m, i18n.language, formatDateTimeDisplay)}
         />

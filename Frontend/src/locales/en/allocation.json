@@ -16,6 +16,7 @@
   "ganttLegendPlanned": "Planned",
   "ganttLegendActual": "Actual",
   "ganttShowStops": "Show stops",
+  "ganttLegendStopNoReason": "Stop, no reason yet",
   "ganttLegendSailed": "Sailed off",
   "ganttLegendNow": "Now",
   "ganttLateChip": "LATE",
