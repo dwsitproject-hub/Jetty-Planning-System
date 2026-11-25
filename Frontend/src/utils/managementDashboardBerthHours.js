@@ -48,15 +48,16 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
     return a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0
   }
   const opsCls = purpose === 'Loading' ? 'wf-load' : purpose === 'Unloading' ? 'wf-disch' : 'wf-ops'
-  const wait = { n: 'Anchorage wait (TA→TB)', cls: 'wf-wait', getVal: (r) => r.wait }
-  const idle = { n: 'Idle / delays at berth', cls: 'wf-idle', getVal: idleHoursAtBerth }
+  const wait = { key: 'wait', n: 'Anchorage wait (TA→TB)', cls: 'wf-wait', getVal: (r) => r.wait }
+  const idle = { key: 'idle', n: 'Idle / delays at berth', cls: 'wf-idle', getVal: idleHoursAtBerth }
 
   const segs = split
     ? [
         wait,
-        { n: 'Berth → start cargo', cls: 'wf-pre', getVal: (r) => num(r.pre) == null ? null : r.pre - rowStopParts(r).before },
-        { n: 'Pumping', cls: opsCls, getVal: (r) => num(rowOpsHours(r)) == null ? null : rowOpsHours(r) - rowStopParts(r).during - rowUnexplainedHours(r) },
+        { key: 'pre', n: 'Berth → start cargo', cls: 'wf-pre', getVal: (r) => num(r.pre) == null ? null : r.pre - rowStopParts(r).before },
+        { key: 'ops', n: 'Pumping', cls: opsCls, getVal: (r) => num(rowOpsHours(r)) == null ? null : rowOpsHours(r) - rowStopParts(r).during - rowUnexplainedHours(r) },
         {
+          key: 'stopped',
           n: 'Stopped (recorded)',
           cls: 'wf-stop',
           getVal: (r) => {
@@ -64,8 +65,9 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
             return p.before + p.during + p.after
           },
         },
-        { n: 'No reason yet', cls: 'wf-noreason', getVal: rowUnexplainedHours },
+        { key: 'noreason', n: 'No reason yet', cls: 'wf-noreason', getVal: rowUnexplainedHours },
         {
+          key: 'idle',
           n: 'Idle, no stop recorded',
           cls: 'wf-idle wf-idle--soft',
           getVal: (r) => {
@@ -74,6 +76,7 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
           },
         },
         {
+          key: 'post',
           n: 'Cargo done → sailed off',
           cls: 'wf-post',
           getVal: (r) => {
@@ -84,10 +87,10 @@ export function buildBerthHourSegments(rows, { purpose = 'all', split = false } 
       ]
     : [
         wait,
-        { n: 'Berth → start cargo', cls: 'wf-pre', getVal: (r) => r.pre },
-        { n: 'Cargo operations', cls: opsCls, getVal: (r) => r.opsH },
+        { key: 'pre', n: 'Berth → start cargo', cls: 'wf-pre', getVal: (r) => r.pre },
+        { key: 'ops', n: 'Cargo operations', cls: opsCls, getVal: (r) => r.opsH },
         idle,
-        { n: 'Cargo done → sailed off', cls: 'wf-post', getVal: cargoDoneToSailDisplayHours },
+        { key: 'post', n: 'Cargo done → sailed off', cls: 'wf-post', getVal: cargoDoneToSailDisplayHours },
       ];
 
   const median = (f) => {

@@ -149,6 +149,7 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
     },
     stopCount: stops.stops.length,
     // detected stops (gaps, flat ATG) that still need a reason, in hours
+    unexplainedCount: unexplained.length,
     unexplainedHours: round2(unexplained.reduce((t, u) => t + (Number(u.minutes) || 0), 0) / 60) ?? 0,
     normal: { qty: round2(normalQty), hours: round2(normalHours), rateMtH: rate(normalQty, normalHours) },
     kuras: {

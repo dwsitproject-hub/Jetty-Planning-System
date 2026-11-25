@@ -107,6 +107,17 @@ function periodWindow(key, opts = {}, now = new Date()) {
 
 const TIMELINE_FETCH_CONCURRENCY = 8
 
+const WAIT_LONG_H = 7 * 24
+const WF_EXPLAIN = {
+  wait: 'Arrival (TA) to berthing (TB).',
+  pre: 'Berthing to the first cargo start.',
+  ops: 'Cargo window of the entries (first start to last end), minus the Stopped and No reason yet hours.',
+  stopped: 'Stops with a reason recorded during the cargo window.',
+  noreason: 'Gaps between entries and flat ATG runs, at least the port minimum, that still need a reason.',
+  idle: 'The rest of the berth time: berth minus before-cargo, cargo window and cargo done to sailed.',
+  post: 'Last cargo end to sail off.',
+}
+
 /** @template T @template R @param {T[]} items @param {number} limit @param {(item: T) => Promise<R>} fn */
 async function mapPool(items, limit, fn) {
   const results = new Array(items.length)
@@ -602,21 +613,47 @@ export default function ManagementDashboard() {
       })
       .map((r) => ({ ...r, phaseH: seg.getVal(r) }))
       .sort((a, b) => b.phaseH - a.phaseH)
+    const vals = rows.map((r) => r.phaseH).sort((x, y) => x - y)
+    const mid = Math.floor(vals.length / 2)
+    const median = vals.length ? (vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2) : null
+    const share = wf.total > 0 ? (seg.v / wf.total) * 100 : null
+    const isWait = seg.key === 'wait'
+    const long = isWait ? rows.filter((r) => r.phaseH > WAIT_LONG_H) : []
+    const longShare = long.length && seg.v > 0
+      ? (long.reduce((t, r) => t + r.phaseH, 0) / rows.length / seg.v) * 100
+      : null
+    const note = long.length
+      ? ` ${long.length} voyage${long.length > 1 ? 's' : ''} above 7 days (⚠) make up ${fmt(longShare, 0)}% of the average.`
+      : ''
+    const stopCount = seg.key === 'stopped'
+      ? (r) => r.recordedStopCount
+      : seg.key === 'noreason'
+        ? (r) => r.unexplainedCount
+        : null
+    const columns = [
+      { label: 'Vessel', cell: (r) => <>{r.vessel}{r.jetty ? <span className="text-steel"> · {r.jetty}</span> : null}</> },
+      {
+        label: `${seg.n} (h)`,
+        cell: (r) => `${fmt(r.phaseH, 1)}${isWait && r.phaseH > WAIT_LONG_H ? ' ⚠' : ''}`,
+        align: 'right',
+      },
+      ...(stopCount ? [{ label: 'Stops', cell: (r) => String(stopCount(r) ?? 0), align: 'right' }] : []),
+      { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
+      { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
+      { label: 'Sailed off', cell: (r) => fmtDate(r.castOff) },
+    ]
     setActiveModal({
       title: `${seg.n} — avg ${fmt(seg.v, 1)} h`,
-      subtitle: `${rows.length} of ${wf.n} voyages with this phase logged`,
+      subtitle: `${WF_EXPLAIN[seg.key] || ''}${note} ${rows.length} of ${wf.n} voyages have this phase.`.trim(),
       footer: flowFooter,
       stats: [
         { label: 'Average', value: `${fmt(seg.v, 1)} h` },
+        { label: 'Median', value: median == null ? '—' : `${fmt(median, 1)} h` },
+        { label: 'Longest', value: vals.length ? `${fmt(vals[vals.length - 1], 1)} h` : '—' },
         { label: 'Voyages', value: String(rows.length) },
+        { label: 'Share of stay', value: share == null ? '—' : `${fmt(share, 0)}%` },
       ],
-      columns: [
-        { label: 'Vessel', cell: (r) => r.vessel },
-        { label: 'Phase h', cell: (r) => fmt(r.phaseH, 1), align: 'right' },
-        { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
-        { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
-        { label: 'Sailed off', cell: (r) => fmtDate(r.castOff) },
-      ],
+      columns,
       rows,
     })
   }, [wf, flowFooter])

@@ -95,3 +95,10 @@ test('anchorage wait carries its median', () => {
   assert.equal(wf.segs[0].med, 2)
   assert.equal(wf.segs[1].med, null)
 })
+
+test('every segment has a key for its detail modal', () => {
+  for (const split of [false, true]) {
+    const wf = buildBerthHourSegments([row], { split })
+    assert.ok(wf.segs.every((s) => typeof s.key === 'string' && s.key.length > 0))
+  }
+})
