@@ -3,7 +3,7 @@
  * The HTTP call returns a job id at once; the page polls the job row for progress and result.
  */
 
-export const JOB_KINDS = ['preview', 'simulate', 'resync'];
+export const JOB_KINDS = ['preview', 'simulate', 'resync', 'source_preview', 'source_recover'];
 const STALE_AFTER_MINUTES = 15;
 const PROGRESS_MIN_INTERVAL_MS = 700;
 
@@ -18,7 +18,8 @@ function mapJob(row) {
   if (!row) return null;
   return {
     id: Number(row.id),
-    operationId: Number(row.operation_id),
+    operationId: row.operation_id == null ? null : Number(row.operation_id),
+    sourceKey: row.source_key ?? null,
     kind: row.kind,
     status: row.status,
     gapKeys: row.gap_keys ?? [],
@@ -40,13 +41,14 @@ export async function failInterruptedJobs(db) {
   return r.rowCount;
 }
 
-async function failStaleJobs(db, operationId) {
+async function failStaleJobs(db, { operationId, sourceKey }) {
   await db.query(
     `UPDATE atg_gap_jobs
      SET status = 'failed', error = 'timed_out', finished_at = NOW(), updated_at = NOW()
-     WHERE status = 'running' AND operation_id = $1
-       AND created_at < NOW() - ($2::int * INTERVAL '1 minute')`,
-    [operationId, STALE_AFTER_MINUTES]
+     WHERE status = 'running'
+       AND (operation_id = $1::bigint OR source_key = $2::text)
+       AND created_at < NOW() - ($3::int * INTERVAL '1 minute')`,
+    [operationId ?? null, sourceKey ?? null, STALE_AFTER_MINUTES]
   );
 }
 
@@ -83,13 +85,13 @@ export async function loadActiveJobs(db, operationIds) {
   return map;
 }
 
-async function createJob(db, { operationId, kind, gapKeys, userId }) {
-  await failStaleJobs(db, operationId);
+async function createJob(db, { operationId = null, sourceKey = null, kind, gapKeys, userId }) {
+  await failStaleJobs(db, { operationId, sourceKey });
   try {
     const r = await db.query(
-      `INSERT INTO atg_gap_jobs (operation_id, kind, gap_keys, created_by)
-       VALUES ($1, $2, $3::jsonb, $4) RETURNING id`,
-      [operationId, kind, JSON.stringify(gapKeys ?? []), userId ?? null]
+      `INSERT INTO atg_gap_jobs (operation_id, source_key, kind, gap_keys, created_by)
+       VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING id`,
+      [operationId, sourceKey, kind, JSON.stringify(gapKeys ?? []), userId ?? null]
     );
     return Number(r.rows[0].id);
   } catch (err) {
@@ -119,7 +121,7 @@ function makeProgressWriter(db, jobId) {
 /**
  * Create the job row, run `work` in the background and store its result or error.
  * @param {import('pg').Pool} db
- * @param {{ operationId: number, kind: string, gapKeys?: string[], userId?: number|null }} input
+ * @param {{ operationId?: number, sourceKey?: string, kind: string, gapKeys?: string[], userId?: number|null }} input
  * @param {(onProgress: (p: { step: string, done?: number, total?: number }) => void) => Promise<object>} work
  * @param {{ onFailure?: (err: Error) => void }} [hooks]
  * @returns {Promise<number>} job id

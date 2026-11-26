@@ -6,6 +6,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { requireAdminPageView } from '../middleware/permissions.js';
 import atgGapsRoutes from './admin-ops-atg-gaps.js';
+import atgSourceRecoveryRoutes from './admin-ops-atg-source-recovery.js';
 import { runAdminOpsChecks } from '../lib/admin-ops-checks.js';
 import {
   computeEmailAlertsActive,
@@ -69,6 +70,7 @@ router.put('/settings', async (req, res) => {
 });
 
 router.use('/atg-cargo-gaps', atgGapsRoutes);
+router.use('/atg-source-recovery', atgSourceRecoveryRoutes);
 
 router.get('/status', async (_req, res) => {
   try {

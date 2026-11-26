@@ -80,7 +80,7 @@ async function fetchTankPoints(fetchArchive, baseUrl, auth, map, window, paramId
  *   tankCodes?: string[]|null,
  *   dryRun?: boolean,
  *   fetchArchive?: typeof fetchArchiveTankData,
- *   onProgress?: (p: { done: number, total: number }) => void,
+ *   onProgress?: (p: { step: string, done: number, total: number }) => void,
  * }} opts
  */
 export async function recoverAtgSourceRange(db, opts) {
@@ -101,7 +101,7 @@ export async function recoverAtgSourceRange(db, opts) {
   const perTank = await mapLimit(maps, DOWNLOAD_CONCURRENCY, async (map) => {
     const { rows, errors } = await fetchTankPoints(fetchArchive, baseUrl, source.auth, map, window, paramIds);
     done += 1;
-    opts.onProgress?.({ done, total: maps.length });
+    opts.onProgress?.({ step: 'download', done, total: maps.length });
     return { map, rows, errors };
   });
 
@@ -109,6 +109,7 @@ export async function recoverAtgSourceRange(db, opts) {
   for (const { map, rows, errors } of perTank) {
     const stored = await loadStoredSampleTimes(db, Number(map.tank_id), baseUrl, window.startIso, window.endIso);
     const entry = {
+      tankId: Number(map.tank_id),
       tankCode: map.code,
       archivePoints: 0,
       newPoints: 0,

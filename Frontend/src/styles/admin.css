@@ -1599,3 +1599,27 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ATG source recovery dialog */
+.atg-src__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+  margin: var(--spacing-2) 0;
+}
+
+.atg-src__fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+}
+
+.atg-src__manual {
+  margin: var(--spacing-1) 0;
+  padding-left: 1.2em;
+}
+
+.atg-coverage__recover {
+  margin: 4px 0 0 8px;
+}

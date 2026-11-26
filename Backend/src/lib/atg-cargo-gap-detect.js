@@ -173,6 +173,7 @@ export function rollupOperationGaps(lines) {
         ...g,
         loadLineId: line.loadLineId,
         commodity: line.commodity ?? null,
+        ...(line.entryMode ? { entryMode: line.entryMode } : {}),
         tankCodes: line.tankCodes ?? [],
         gapKey: buildGapKey(line.loadLineId, g.startAt, g.endAt),
       });

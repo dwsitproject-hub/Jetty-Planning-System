@@ -247,7 +247,7 @@ async function fetchGapTankRows(gap, map, auth, window, archiveErrors) {
   return rows;
 }
 
-async function reaggregate(db, operationId) {
+export async function reaggregate(db, operationId) {
   let dailyUpserted = 0;
   let hourlyUpserted = 0;
   try {

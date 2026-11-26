@@ -12,9 +12,12 @@ function checkResult(status, summary, details = {}) {
   return { id: CHECK_ID, title: CHECK_TITLE, status, summary, details, actionHref: null, actionLabel: null };
 }
 
-function buildSummary(scan, openOps) {
+function buildSummary(scan, openOps, manualOps) {
   const { liveWithRecentGap } = scan.severity;
   if (scan.totalWithGaps === 0) return `No ATG coverage gaps in the last ${scan.lookbackDays} days`;
+  if (openOps === 0 && manualOps > 0) {
+    return `${manualOps} operation(s) have Manual entries whose ATG readings can be recovered`;
+  }
   if (openOps === 0) return `All ATG gaps in the last ${scan.lookbackDays} days are resolved or acknowledged`;
   if (liveWithRecentGap > 0) {
     return `${liveWithRecentGap} vessel(s) at berth lost ATG in the last ${scan.recentWindowMinutes / 60} h · ${openOps} operation(s) need review`;
@@ -31,14 +34,16 @@ export async function checkAtgCargoGaps(db) {
     const operationIds = scan.operations.map((op) => op.operationId);
     const lastResync = await loadLastResyncByOperation(db, operationIds);
     const activeJobs = await loadActiveJobs(db, operationIds);
-    const openOps = scan.operations.filter((op) => op.openGapCount > 0).length;
+    const openOps = scan.operations.filter((op) => (op.openAutoGapCount ?? op.openGapCount) > 0).length;
+    const manualOps = scan.operations.filter((op) => op.openGapCount > 0 && !(op.openAutoGapCount > 0)).length;
 
-    return checkResult(scan.severity.status, buildSummary(scan, openOps), {
+    return checkResult(scan.severity.status, buildSummary(scan, openOps, manualOps), {
       lookbackDays: scan.lookbackDays,
       minGapMinutes: scan.minGapMinutes,
       recentWindowMinutes: scan.recentWindowMinutes,
       totalWithGaps: scan.totalWithGaps,
       openOperations: openOps,
+      manualRecoverableOperations: manualOps,
       truncated: scan.truncated,
       liveWithRecentGap: scan.severity.liveWithRecentGap,
       liveWithOlderGap: scan.severity.liveWithOlderGap,

@@ -64,6 +64,7 @@ describe('recoverAtgSourceRange', () => {
     });
     assert.equal(r.dryRun, true);
     assert.equal(r.tanks.length, 2);
+    assert.deepEqual(r.tanks.map((t) => t.tankId), [27, 28]);
     assert.ok(r.totals.archivePoints > 0);
     assert.equal(r.totals.newPoints, r.totals.archivePoints);
     assert.equal(r.totals.inserted, 0);

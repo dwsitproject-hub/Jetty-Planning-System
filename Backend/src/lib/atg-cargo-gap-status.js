@@ -16,18 +16,22 @@ export function annotateAcknowledgedGaps(op, ackByGapKey) {
     acknowledgement: ackByGapKey?.get(String(g.gapKey)) ?? null,
   }));
   const open = gaps.filter((g) => !g.acknowledgement);
+  // Manual entries never count toward health: they are listed so they can be recovered.
+  const openAuto = open.filter((g) => g.entryMode !== 'manual');
   return {
     ...op,
     gaps,
     openGapCount: open.length,
+    openAutoGapCount: openAuto.length,
     acknowledgedGapCount: gaps.length - open.length,
     openUnionGaps: rollupLineGaps([open]),
+    openAutoUnionGaps: rollupLineGaps([openAuto]),
   };
 }
 
 /**
  * Only open (unacknowledged) gaps count.
- * @param {Array<{ atBerth?: boolean, openUnionGaps?: unknown[] }>} operations
+ * @param {Array<{ atBerth?: boolean, openAutoUnionGaps?: unknown[], openUnionGaps?: unknown[] }>} operations
  * @param {number} [recentWindowMs]
  * @param {number} [nowMs]
  */
@@ -38,7 +42,7 @@ export function deriveGapCheckStatus(operations, recentWindowMs = DEFAULT_RECENT
   let completedWithGaps = 0;
 
   for (const op of operations || []) {
-    const open = op.openUnionGaps ?? op.unionGaps ?? [];
+    const open = op.openAutoUnionGaps ?? op.openUnionGaps ?? op.unionGaps ?? [];
     if (!open.length) continue;
     if (!op.atBerth) {
       completedWithGaps += 1;

@@ -192,7 +192,9 @@ Or Task Scheduler calling `run-tank-gauging-poll.bat` / `aggregate-daily-cargo-p
 - `tank_gauging_samples.origin` is `live` for poller rows and `archive-backfill` for rows imported by the Tankvision archive resync.
 - Cargo entry forms explain missing ATG data (source and time range) through `GET /tank-gauging/mass-delta` fields `gapSources` and `endpointQty`.
 
-### Recover a source's readings for a time range (manual)
+### Recover a source's readings for a time range
+
+Admins can do this in the app: **System Health → ATG sync → Recover…** on a source with a gap (preview, confirm, result; audit-logged as `AtgSourceRecovery`; needs migration 158). The command line below does the same.
 
 Use when a source (not a single cargo line) lost readings, for example after an ATG server outage, or when the affected cargo entry was saved as Manual and no longer appears in ATG cargo coverage. It reads the Tankvision archive and inserts only missing samples, flagged `origin = 'archive-backfill'`.
 
