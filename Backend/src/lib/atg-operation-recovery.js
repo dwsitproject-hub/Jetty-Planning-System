@@ -77,7 +77,7 @@ async function loadTankMaps(db, portId, tankIds) {
   return r.rows;
 }
 
-async function loadStoredSampleTimes(db, tankId, sourceBaseUrl, startIso, endIso) {
+export async function loadStoredSampleTimes(db, tankId, sourceBaseUrl, startIso, endIso) {
   const r = await db.query(
     `SELECT sampled_at FROM tank_gauging_samples
      WHERE tank_id = $1 AND source_base_url = $2
@@ -87,7 +87,7 @@ async function loadStoredSampleTimes(db, tankId, sourceBaseUrl, startIso, endIso
   return r.rows.map((row) => new Date(row.sampled_at).toISOString());
 }
 
-async function insertSampleIfMissing(db, sample, tankId) {
+export async function insertSampleIfMissing(db, sample, tankId) {
   const v = sample.values || {};
   const rawPayload = JSON.stringify({
     source: 'tankvision-archive-import',
@@ -130,7 +130,7 @@ function filterGapsByKeys(gaps, gapKeys) {
   return (gaps || []).filter((g) => set.has(String(g.gapKey)));
 }
 
-function padGapWindow(startAt, endAt) {
+export function padGapWindow(startAt, endAt) {
   const startMs = new Date(startAt).getTime() - GAP_PAD_MS;
   const endMs = new Date(endAt).getTime() + GAP_PAD_MS;
   if (endMs - startMs > MAX_GAP_SPAN_MS) {
