@@ -23,7 +23,7 @@
     "run:tank-gauging-poll": "node scripts/run-tank-gauging-poll.js",
     "run:purge-tank-gauging-samples": "node scripts/purge-tank-gauging-samples.js",
     "run:aggregate-daily-cargo-progress": "node scripts/aggregate-daily-cargo-progress.js",
-    "test:operational-progress": "node --test src/lib/operational-progress.test.js src/lib/cargo-product-progress.test.js src/lib/at-berth-flow-pattern.test.js",
+    "test:operational-progress": "node --test src/lib/operation-auto-status.test.js src/lib/operational-progress.test.js src/lib/cargo-product-progress.test.js src/lib/at-berth-flow-pattern.test.js",
     "test:mgmt-dashboard-rates": "node --test src/lib/management-dashboard-cargo-rate.test.js src/lib/management-hourly-rate-profile.test.js",
     "test:kuras": "node --test src/lib/kuras-movement.test.js src/lib/kuras-start.test.js src/lib/voyage-rate-breakdown.test.js",
     "test:no-flow": "node --test src/lib/no-flow-detect.test.js src/lib/no-flow-live.test.js src/lib/no-flow-metrics.test.js src/lib/no-flow-report.test.js src/lib/no-flow-gantt-stops.test.js src/lib/feature-flags.test.js",

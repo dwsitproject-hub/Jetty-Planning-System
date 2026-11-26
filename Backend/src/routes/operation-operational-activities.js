@@ -7,7 +7,7 @@ import { pool } from '../db.js';
 import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
-import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
+import { promoteAfterOperationalSave } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from '../lib/atg-window-rate.js';
 import { resolveCargoLineQty } from '../lib/cargo-line-qty.js';
@@ -1208,7 +1208,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       if (milestoneKey === 'cargo_operations') {
         await replaceCargoActivityTanks(client, row.id, []);
       }
-      await promoteDockedToInProgressIfDocked(client, operationId);
+      await promoteAfterOperationalSave(client, operationId);
       await client.query('COMMIT');
       if (milestoneKey === 'cargo_operations') {
         await refreshOperationalProgressAfterCargoSave(pool, operationId);
@@ -1280,7 +1280,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       );
       row = ins.rows[0];
     }
-    await promoteDockedToInProgressIfDocked(client, operationId);
+    await promoteAfterOperationalSave(client, operationId);
     await client.query('COMMIT');
     writeActivityLog({
       pageKey: 'loading',
@@ -1434,7 +1434,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
         await client.query(`DELETE FROM operation_cargo_load_lines WHERE operational_activity_id = $1`, [entryId]);
         await client.query(`DELETE FROM operation_cargo_activity_tanks WHERE operational_activity_id = $1`, [entryId]);
       }
-      await promoteDockedToInProgressIfDocked(client, operationId);
+      await promoteAfterOperationalSave(client, operationId);
       await client.query('COMMIT');
       if (milestoneKey === 'cargo_operations' || row0.milestone_key === 'cargo_operations') {
         await refreshOperationalProgressAfterCargoSave(pool, operationId);
@@ -1498,7 +1498,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
                  start_at, end_at, marked_at, created_at, updated_at`,
       [reason, markedAt, entryId, operationId]
     );
-    await promoteDockedToInProgressIfDocked(clientNa, operationId);
+    await promoteAfterOperationalSave(clientNa, operationId);
     await clientNa.query('COMMIT');
     writeActivityLog({
       pageKey: 'loading',
