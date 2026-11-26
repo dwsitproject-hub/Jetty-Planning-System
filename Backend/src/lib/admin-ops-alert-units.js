@@ -14,6 +14,8 @@ export const ADMIN_OPS_ALERT_CHECK_CATALOG = [
 ];
 
 /**
+ * Any silent source raises an alert: the other sources keep a port looking fine while one
+ * source's tanks lose readings. Gaps that already ended are shown on the card but do not alert.
  * @param {{ totalEnabled?: number, staleCount?: number, allHealthy?: boolean, portName?: string }} portRow
  * @returns {'healthy'|'degraded'|'unhealthy'|'unknown'}
  */
@@ -22,8 +24,7 @@ export function deriveAtgPortAlertStatus(portRow) {
   const staleCount = Number(portRow?.staleCount) || 0;
   if (totalEnabled === 0) return 'unknown';
   if (staleCount === 0) return 'healthy';
-  if (staleCount >= totalEnabled) return 'unhealthy';
-  return 'degraded';
+  return 'unhealthy';
 }
 
 /**
@@ -42,10 +43,10 @@ export function buildAlertUnitsFromChecks(checks) {
         const portName = port.portName || `Port ${portId}`;
         const summary =
           status === 'unhealthy'
-            ? `${portName}: all ${port.totalEnabled} ATG source(s) stale`
+            ? `${portName}: ${port.staleCount ?? 0} of ${port.totalEnabled ?? 0} ATG source(s) silent`
             : status === 'healthy'
               ? `${portName}: ATG sources in sync`
-              : `${portName}: ${port.staleCount ?? 0} of ${port.totalEnabled ?? 0} source(s) stale`;
+              : `${portName}: ATG sync status unknown`;
         units.push({
           stateKey: `atg_sync:port:${portId}`,
           checkId: 'atg_sync',

@@ -10,7 +10,8 @@ import {
 test('deriveAtgPortAlertStatus classifies port-level unhealthy', () => {
   assert.equal(deriveAtgPortAlertStatus({ totalEnabled: 0 }), 'unknown');
   assert.equal(deriveAtgPortAlertStatus({ totalEnabled: 3, staleCount: 0 }), 'healthy');
-  assert.equal(deriveAtgPortAlertStatus({ totalEnabled: 3, staleCount: 2 }), 'degraded');
+  assert.equal(deriveAtgPortAlertStatus({ totalEnabled: 3, staleCount: 1 }), 'unhealthy');
+  assert.equal(deriveAtgPortAlertStatus({ totalEnabled: 3, staleCount: 2 }), 'unhealthy');
   assert.equal(deriveAtgPortAlertStatus({ totalEnabled: 3, staleCount: 3 }), 'unhealthy');
 });
 

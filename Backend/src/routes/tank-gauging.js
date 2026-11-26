@@ -9,6 +9,7 @@ import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from '../lib/atg-window-rate.js';
 import { computeDirectionalMovedQtyForWindow } from '../lib/atg-hourly-progress.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { describeAtgWindowGaps } from '../lib/atg-gap-reason.js';
 import {
   OVERRIDE_ENTITY_TYPE,
   mapOverrideForClient,
@@ -293,7 +294,25 @@ router.get('/mass-delta', async (req, res) => {
     result = await computeAtgWindowMassDelta(pool, { tankIds, startAt, endAt });
   }
 
+  let gapInfo = null;
+  if (result.incomplete) {
+    try {
+      gapInfo = await describeAtgWindowGaps(pool, {
+        portId,
+        tankIds,
+        startAt,
+        endAt,
+        purpose,
+        measurementBasis,
+      });
+    } catch (e) {
+      console.error('[tank-gauging] gap reason unavailable', e?.message || e);
+    }
+  }
+
   res.json({
+    gapSources: gapInfo?.gapSources ?? [],
+    endpointQty: gapInfo?.endpointQty ?? null,
     sumAtgQty: result.sumAtgQty ?? result.sumDeltaMass ?? result.sumDeltaVolumeKl ?? null,
     sumDeltaMass: result.sumDeltaMass ?? null,
     qtyUnit: siMetric === 'KL' ? 'KL' : 'MT',

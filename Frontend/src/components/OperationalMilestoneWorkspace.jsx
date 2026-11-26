@@ -30,6 +30,7 @@ import {
 import { buildTankCommodityMismatchWarnings } from '../utils/tankCommodityMismatch.js'
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import { readAtgQtyFromRef } from '../utils/atgQty.js'
+import AtgGapNotice from './AtgGapNotice.jsx'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import CargoOverrideBlock from './CargoOverrideBlock'
 import DropdownSearchSelect from './DropdownSearchSelect'
@@ -1008,6 +1009,8 @@ export default function OperationalMilestoneWorkspace({
             sumAtgQty: atgQty,
             sumDeltaMass: data.sumDeltaMass ?? atgQty,
             incomplete: data.incomplete,
+            gapSources: Array.isArray(data.gapSources) ? data.gapSources : [],
+            endpointQty: data.endpointQty ?? null,
             tanks: Array.isArray(data.tanks) ? data.tanks : [],
             error: data.error,
             atgTankIds,
@@ -1947,6 +1950,13 @@ export default function OperationalMilestoneWorkspace({
                                 <p className="cargo-line-card__qty-hint text-steel" style={{ color: 'var(--color-danger, #c00)' }}>
                                   {t('cargoOpsAtgUnavailableHint')}
                                 </p>
+                              ) : null}
+                              {atgUnavailable && atgRef?.status === 'ok' ? (
+                                <AtgGapNotice
+                                  atgRef={atgRef}
+                                  unit={cargoOpsFormDerived?.metricLabel?.split(' · ')[0]}
+                                  t={t}
+                                />
                               ) : null}
                               {atgNowAvailable && atgFmt ? (
                                 <p className="cargo-line-card__qty-hint text-steel">

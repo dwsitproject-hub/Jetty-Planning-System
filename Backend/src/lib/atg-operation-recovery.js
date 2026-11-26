@@ -97,10 +97,10 @@ async function insertSampleIfMissing(db, sample, tankId) {
     `INSERT INTO tank_gauging_samples (
        tank_id, source_base_url, product_name, tank_comment, total_mass,
        flow_rate_tph, level_mm, temperature_c, observed_density_kg_m3,
-       total_observed_volume, status_text, sampled_at, raw_payload
+       total_observed_volume, status_text, sampled_at, raw_payload, origin
      )
      SELECT $1, $2, NULL, NULL, $3::numeric, NULL, $4::numeric, $5::numeric,
-            $6::numeric, $7::numeric, $8, $9::timestamptz, $10::jsonb
+            $6::numeric, $7::numeric, $8, $9::timestamptz, $10::jsonb, 'archive-backfill'
      WHERE NOT EXISTS (
        SELECT 1 FROM tank_gauging_samples s
        WHERE s.tank_id = $1
