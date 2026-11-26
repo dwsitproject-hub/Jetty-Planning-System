@@ -40,6 +40,11 @@ export function startAtgCargoGapSimulation(operationId, gapKeys) {
   return apiPost(`${gapsPath(operationId)}/simulate`, { gapKeys })
 }
 
+/** Recover one ATG source's readings for a time range; preview (dryRun) and apply (confirm) are jobs too. */
+export function startAtgSourceRecovery(body) {
+  return apiPost('/admin-ops/atg-source-recovery', body)
+}
+
 export function fetchAtgCargoGapJob(jobId) {
   return apiGet(`/admin-ops/atg-cargo-gaps/jobs/${jobId}`)
 }

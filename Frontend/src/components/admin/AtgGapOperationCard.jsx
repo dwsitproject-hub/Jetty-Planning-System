@@ -114,7 +114,12 @@ export default function AtgGapOperationCard({ op, canEdit, defaultOpen, historyR
                     <td className="atg-gap-op__check">
                       <input type="checkbox" checked={selected.has(g.gapKey)} onChange={() => toggle(g.gapKey)} />
                     </td>
-                    <td>{formatWhen(g.startAt)} → {formatWhen(g.endAt)}</td>
+                    <td>
+                      {formatWhen(g.startAt)} → {formatWhen(g.endAt)}
+                      {g.entryMode === 'manual' ? (
+                        <div><span className="atg-gap-pill atg-gap-pill--info">{t('atgGapManualEntry')}</span></div>
+                      ) : null}
+                    </td>
                     <td>{formatGapDuration(g.durationMinutes)}</td>
                     <td>{g.commodity ?? '—'}</td>
                     <td>{(g.tankCodes ?? []).join(', ') || '—'}</td>

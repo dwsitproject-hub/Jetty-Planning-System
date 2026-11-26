@@ -36,7 +36,6 @@ const CANDIDATE_OPS_SQL = `
   WHERE o.deleted_at IS NULL
     AND l.started_at IS NOT NULL
     AND l.started_at >= NOW() - ($1::int * INTERVAL '1 day')
-    AND COALESCE(l.atg_qty_mode, 'auto') <> 'manual'
   ORDER BY o.id DESC`;
 
 const LINES_FOR_OPS_SQL = `
@@ -216,7 +215,8 @@ export async function scanAtgCargoGaps(db, opts = {}) {
 
     for (const line of opLines) {
       if (String(line.commodity_type || 'Liquid') === 'Solid') continue;
-      if (String(line.atg_qty_mode || 'auto') === 'manual') continue;
+      // Manual entries are listed too: if their ATG tanks lost readings, recovery lets them switch back to ATG.
+      const isManual = String(line.atg_qty_mode || 'auto') === 'manual';
 
       const tankIds = (line.tank_ids || []).map(Number).filter((n) => n > 0);
       const { atgTankIds } = await partitionLineTanks(db, tankIds, overrideTankIdsFromJson(line.manual_override));
@@ -234,7 +234,7 @@ export async function scanAtgCargoGaps(db, opts = {}) {
         }
       }
 
-      const fast = gapsFromLineFastPath(line.load_line_id, hourlyRows, detail);
+      const fast = isManual ? null : gapsFromLineFastPath(line.load_line_id, hourlyRows, detail);
       let gaps = [];
       let detectionMethod = 'samples';
 
@@ -267,6 +267,7 @@ export async function scanAtgCargoGaps(db, opts = {}) {
       lineGapInputs.push({
         loadLineId: Number(line.load_line_id),
         commodity: line.commodity_short_name || line.commodity_name || null,
+        entryMode: isManual ? 'manual' : 'auto',
         tankCodes,
         atgTankIds,
         detectionMethod,

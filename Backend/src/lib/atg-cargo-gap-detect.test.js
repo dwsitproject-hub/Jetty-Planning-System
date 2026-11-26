@@ -61,6 +61,16 @@ describe('atg-cargo-gap-detect', () => {
     assert.equal(r.gaps[0].gapKey.includes('10|'), true);
   });
 
+  it('carries the entry mode onto each gap and omits it when the line has none', () => {
+    const gap = { startAt: '2026-01-01T15:00:00.000Z', endAt: '2026-01-01T17:00:00.000Z', durationMinutes: 120 };
+    const r = rollupOperationGaps([
+      { loadLineId: 10, entryMode: 'manual', gaps: [gap] },
+      { loadLineId: 11, gaps: [gap] },
+    ]);
+    assert.equal(r.gaps[0].entryMode, 'manual');
+    assert.equal('entryMode' in r.gaps[1], false);
+  });
+
   it('rollupLineGaps unions per-tank gaps', () => {
     const line = rollupLineGaps([
       [{ startAt: '2026-01-01T15:00:00.000Z', endAt: '2026-01-01T16:00:00.000Z' }],

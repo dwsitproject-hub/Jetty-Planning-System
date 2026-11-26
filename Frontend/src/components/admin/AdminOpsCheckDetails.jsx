@@ -4,6 +4,8 @@ import { useSortableFilterableRows } from '../../hooks/useSortableFilterableRows
 import { formatCount, formatRelativeTime, formatWhen, shortBatchId } from '../../utils/adminOpsDisplay'
 import { AtgCargoGapsDetail } from './AdminOpsAtgCargoGaps.jsx'
 import { AtgCoverageLegend, AtgPortCoverage } from './AtgSourceCoverage.jsx'
+import AtgSourceRecoveryDialog from './AtgSourceRecoveryDialog.jsx'
+import { defaultRecoveryRange } from '../../utils/atgSourceRecovery'
 
 function isoSortValue(iso) {
   const n = iso ? new Date(iso).getTime() : 0
@@ -178,7 +180,8 @@ export function PurgeBatchTable({ batches, expectedCadence, t }) {
   )
 }
 
-export function AtgSyncDetail({ details, t }) {
+export function AtgSyncDetail({ details, t, canRecover = false, onRecovered }) {
+  const [recovery, setRecovery] = useState(null)
   const ports = details?.ports ?? []
   if (!ports.length) return null
 
@@ -188,9 +191,29 @@ export function AtgSyncDetail({ details, t }) {
         {ports
           .filter((port) => port.sources?.length)
           .map((port) => (
-            <AtgPortCoverage key={port.portId} port={port} hours={details.coverageHours} t={t} />
+            <AtgPortCoverage
+              key={port.portId}
+              port={port}
+              hours={details.coverageHours}
+              canRecover={canRecover}
+              onRecover={(p, source) => setRecovery({ port: p, source })}
+              t={t}
+            />
           ))}
         <AtgCoverageLegend t={t} />
+        {recovery ? (
+          <AtgSourceRecoveryDialog
+            portId={Number(recovery.port.portId)}
+            portName={recovery.port.portName}
+            source={recovery.source}
+            initialRange={defaultRecoveryRange(recovery.source.coverage)}
+            onClose={(changed) => {
+              setRecovery(null)
+              if (changed) onRecovered?.()
+            }}
+            t={t}
+          />
+        ) : null}
       </div>
     )
   }
@@ -382,7 +405,7 @@ export function StructuredCheckDetail({ check, t, canResyncAtg, onAtgGapsChanged
   const details = check.details ?? {}
   switch (check.id) {
     case 'atg_sync':
-      return <AtgSyncDetail details={details} t={t} />
+      return <AtgSyncDetail details={details} t={t} canRecover={canResyncAtg} onRecovered={onAtgGapsChanged} />
     case 'atg_cargo_gaps':
       return (
         <AtgCargoGapsDetail

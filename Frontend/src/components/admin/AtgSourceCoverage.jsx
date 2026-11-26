@@ -1,5 +1,6 @@
 import { formatDateTimeCompact } from '../../utils/formatDateTimeDisplay'
 import { formatCount } from '../../utils/adminOpsDisplay'
+import { defaultRecoveryRange } from '../../utils/atgSourceRecovery'
 
 const BLOCK_CLASS = { l: 'live', r: 'recovered', m: 'missing' }
 const STATUS_BADGE = {
@@ -62,7 +63,7 @@ export function AtgCoverageLegend({ t }) {
   )
 }
 
-function AtgSourceRow({ source, hours, t }) {
+function AtgSourceRow({ source, hours, canRecover, onRecover, t }) {
   const { coverage } = source
   const status = coverage?.status ?? (source.stale ? 'silent' : 'live')
   const note = sourceNote(coverage, hours, t)
@@ -89,13 +90,18 @@ function AtgSourceRow({ source, hours, t }) {
         <span className={`admin-status-badge admin-status-badge--${STATUS_BADGE[status]}`}>
           {t(`adminOpsAtgStatus_${status}`)}
         </span>
+        {canRecover && defaultRecoveryRange(coverage) ? (
+          <button type="button" className="btn btn--secondary btn--sm atg-coverage__recover" onClick={() => onRecover(source)}>
+            {t('atgSrcRecoverButton')}
+          </button>
+        ) : null}
         {note ? <div className="atg-coverage__meta">{note}</div> : null}
       </div>
     </div>
   )
 }
 
-export function AtgPortCoverage({ port, hours = COVERAGE_HOURS_FALLBACK, t }) {
+export function AtgPortCoverage({ port, hours = COVERAGE_HOURS_FALLBACK, canRecover = false, onRecover, t }) {
   return (
     <div className="atg-coverage__port">
       <div className="atg-coverage__port-title">
@@ -103,7 +109,14 @@ export function AtgPortCoverage({ port, hours = COVERAGE_HOURS_FALLBACK, t }) {
         <span className="atg-coverage__meta"> · {t('adminOpsAtgCoverageTitle', { hours })}</span>
       </div>
       {port.sources.map((source) => (
-        <AtgSourceRow key={source.baseUrl || source.label} source={source} hours={hours} t={t} />
+        <AtgSourceRow
+          key={source.baseUrl || source.label}
+          source={source}
+          hours={hours}
+          canRecover={canRecover}
+          onRecover={(src) => onRecover?.(port, src)}
+          t={t}
+        />
       ))}
     </div>
   )

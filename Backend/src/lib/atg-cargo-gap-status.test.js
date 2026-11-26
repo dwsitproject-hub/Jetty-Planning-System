@@ -60,4 +60,20 @@ describe('atg-cargo-gap-status', () => {
     assert.equal(op.openUnionGaps.length, 1);
     assert.equal(op.openUnionGaps[0].startAt, b.startAt);
   });
+
+  it('ignores Manual entries when judging health, but still lists them as open', () => {
+    const manual = { ...gap('2026-01-01T15:00:00.000Z', '2026-01-01T17:00:00.000Z'), entryMode: 'manual' };
+    const op = annotateAcknowledgedGaps({ atBerth: true, gaps: [manual] }, new Map());
+    assert.equal(op.openGapCount, 1);
+    assert.equal(op.openAutoGapCount, 0);
+    assert.equal(deriveGapCheckStatus([op], 6 * HOUR, now).status, 'healthy');
+  });
+
+  it('still judges auto gaps when the same operation also has a Manual entry gap', () => {
+    const manual = { ...gap('2026-01-01T15:00:00.000Z', '2026-01-01T17:00:00.000Z'), entryMode: 'manual' };
+    const auto = { ...gap('2026-01-01T15:30:00.000Z', '2026-01-01T17:00:00.000Z'), entryMode: 'auto' };
+    const op = annotateAcknowledgedGaps({ atBerth: true, gaps: [manual, auto] }, new Map());
+    assert.equal(op.openAutoGapCount, 1);
+    assert.equal(deriveGapCheckStatus([op], 6 * HOUR, now).status, 'unhealthy');
+  });
 });
