@@ -21,6 +21,7 @@
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
 import { pool, verifyConnection } from '../src/db.js';
+import { purgeOldPollRuns } from '../src/lib/tank-gauging-poll-runs.js';
 
 /** Distinct from SLA 930931 and poller 930932. */
 const ADVISORY_LOCK_KEY = 930933;
@@ -289,6 +290,13 @@ async function main() {
     skipLock: args.skipLock,
     dryRun: args.dryRun,
   });
+  if (!args.dryRun) {
+    try {
+      result.pollRunsDeleted = await purgeOldPollRuns(pool);
+    } catch (e) {
+      console.error('[purge-tank-gauging-samples] poll run prune failed', e?.message || e);
+    }
+  }
   console.log(JSON.stringify(result));
   await pool.end();
   process.exit(result.ok ? 0 : 1);

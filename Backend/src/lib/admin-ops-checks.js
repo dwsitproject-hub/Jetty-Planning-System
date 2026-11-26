@@ -5,6 +5,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { computeAtgSyncHealth, DEFAULT_ATG_STALE_MS } from './dashboard-atg-sync-health.js';
+import {
+  COVERAGE_HOURS,
+  loadSourceSampleTimes,
+  resolveSourceSilentMs,
+  summarizeSourceCoverage,
+} from './atg-source-coverage.js';
+import { trimBaseUrl } from './tankvision-client.js';
 import { getDataHubConfigForAdmin } from './datahub-config.js';
 import { checkPartnerApi } from './admin-ops-partner-api-check.js';
 import { checkAtgCargoGaps } from './admin-ops-atg-cargo-gaps-check.js';
@@ -67,49 +74,91 @@ export async function checkAtgSync(db) {
   const portsR = await db.query(
     `SELECT id, name FROM ports WHERE deleted_at IS NULL AND is_active IS TRUE ORDER BY LOWER(name), id`
   );
+  const nowMs = Date.now();
+  const silentMs = resolveSourceSilentMs();
   const ports = [];
   let totalEnabled = 0;
   let totalStale = 0;
+  let totalGap = 0;
 
   for (const port of portsR.rows) {
-    const health = await computeAtgSyncHealth(db, Number(port.id));
+    const health = await computeAtgSyncHealth(db, Number(port.id), { now: nowMs });
+    let samplesByUrl = new Map();
+    try {
+      samplesByUrl = await loadSourceSampleTimes(
+        db,
+        health.sources.map((s) => s.baseUrl),
+        nowMs - COVERAGE_HOURS * 3600000
+      );
+    } catch (e) {
+      console.error('[admin-ops] ATG coverage unavailable', e?.message || e);
+    }
+
+    const sources = health.sources.map((src) => {
+      const samples = samplesByUrl.get(trimBaseUrl(src.baseUrl || ''));
+      const coverage = samples ? summarizeSourceCoverage(samples, { nowMs, silentMs }) : null;
+      const stale = src.stale || Boolean(coverage?.silentNow);
+      return {
+        label: src.label || src.baseUrl,
+        baseUrl: src.baseUrl,
+        tankCount: src.mappedTankCount,
+        stale,
+        staleMinutes: coverage?.silentNow ? coverage.silentMinutes ?? src.staleMinutes : src.staleMinutes,
+        lastError: src.lastError,
+        lastPollOk: src.lastPollOk,
+        coverage,
+      };
+    });
+    const staleSources = sources.filter((s) => s.stale);
+    const gapSources = sources.filter((s) => !s.stale && s.coverage?.status === 'gap');
+
     totalEnabled += health.totalEnabled;
-    totalStale += health.staleCount;
+    totalStale += staleSources.length;
+    totalGap += gapSources.length;
     ports.push({
       portId: port.id,
       portName: port.name,
       totalEnabled: health.totalEnabled,
-      staleCount: health.staleCount,
-      allHealthy: health.allHealthy,
-      staleSources: health.staleSources.map((s) => ({
-        label: s.label || s.baseUrl,
+      staleCount: staleSources.length,
+      gapCount: gapSources.length,
+      allHealthy: staleSources.length === 0 && gapSources.length === 0,
+      staleSources: staleSources.map((s) => ({
+        label: s.label,
         staleMinutes: s.staleMinutes,
         lastError: s.lastError,
       })),
+      sources,
     });
   }
 
   let status = 'unknown';
   if (totalEnabled === 0) {
     status = 'unknown';
-  } else if (totalStale === 0) {
-    status = 'healthy';
-  } else if (totalStale < totalEnabled) {
+  } else if (totalStale > 0) {
+    // Any silent source is unhealthy: the alert email fires on this status, and the other
+    // sources keep a port looking fine while one source's tanks lose readings.
+    status = 'unhealthy';
+  } else if (totalGap > 0) {
     status = 'degraded';
   } else {
-    status = 'unhealthy';
+    status = 'healthy';
   }
 
-  const summary =
-    totalEnabled === 0
-      ? 'No enabled ATG sources configured'
-      : totalStale === 0
-        ? `${totalEnabled} source(s) in sync across ${ports.length} port(s)`
-        : `${totalStale} of ${totalEnabled} source(s) stale (threshold ${DEFAULT_ATG_STALE_MS / 60000} min)`;
+  const silentMinutes = Math.round(silentMs / 60000);
+  let summary = `${totalEnabled} source(s) in sync across ${ports.length} port(s)`;
+  if (totalEnabled === 0) {
+    summary = 'No enabled ATG sources configured';
+  } else if (totalStale > 0) {
+    summary = `${totalStale} of ${totalEnabled} source(s) silent (no reading for ${silentMinutes}+ min)`;
+  } else if (totalGap > 0) {
+    summary = `${totalGap} of ${totalEnabled} source(s) had a reading gap in the last ${COVERAGE_HOURS} h`;
+  }
 
   return checkResult('atg_sync', 'ATG sync', status, summary, {
     ports,
     staleThresholdMinutes: DEFAULT_ATG_STALE_MS / 60000,
+    silentThresholdMinutes: silentMinutes,
+    coverageHours: COVERAGE_HOURS,
   });
 }
 

@@ -15,6 +15,7 @@ import {
   resolveEnabledSources,
   updateSourcePollHealth,
 } from './tank-gauging-source-config.js';
+import { recordPollRun } from './tank-gauging-poll-runs.js';
 
 /** Dedicated advisory lock (distinct from SLA 930931). */
 const ADVISORY_LOCK_KEY = 930932;
@@ -152,13 +153,24 @@ async function pollOneSource(db, portId, opts, baseUrl, sourceMeta = {}) {
   const auth = sourceMeta.auth;
   const sourceId = sourceMeta.id ?? null;
   const fetchOpts = { baseUrl: base, auth };
+  const startedAt = new Date();
 
   async function finish(result) {
-    await updateSourcePollHealth(db, sourceId, {
+    const error = result.ok
+      ? null
+      : result.error || result.metaSync?.error || result.errors?.[0]?.message || 'poll failed';
+    await updateSourcePollHealth(db, sourceId, { ok: Boolean(result.ok), error });
+    await recordPollRun(db, {
+      portId,
+      sourceId,
+      sourceBaseUrl: base,
+      startedAt,
       ok: Boolean(result.ok),
-      error: result.ok
-        ? null
-        : result.error || result.metaSync?.error || result.errors?.[0]?.message || 'poll failed',
+      httpStatus: result.httpStatus,
+      fetched: result.fetched,
+      upserted: result.upserted,
+      unmapped: result.unmapped,
+      error,
     });
     return result;
   }
@@ -437,6 +449,7 @@ export async function runTankGaugingPollJob(db, opts = {}) {
 
     const sources = [];
     for (const src of enabledSources) {
+      const startedAt = new Date();
       try {
         sources.push(
           await pollOneSource(db, src.portId, opts, src.baseUrl, {
@@ -447,6 +460,14 @@ export async function runTankGaugingPollJob(db, opts = {}) {
       } catch (e) {
         const errMsg = e?.message || String(e);
         await updateSourcePollHealth(db, src.id, { ok: false, error: errMsg });
+        await recordPollRun(db, {
+          portId: src.portId,
+          sourceId: src.id,
+          sourceBaseUrl: trimBaseUrl(src.baseUrl),
+          startedAt,
+          ok: false,
+          error: errMsg,
+        });
         sources.push({
           ok: false,
           sourceBaseUrl: trimBaseUrl(src.baseUrl),

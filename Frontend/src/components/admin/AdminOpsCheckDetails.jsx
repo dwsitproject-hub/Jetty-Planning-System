@@ -3,6 +3,7 @@ import SortableFilterableTableHead from '../SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../../hooks/useSortableFilterableRows.js'
 import { formatCount, formatRelativeTime, formatWhen, shortBatchId } from '../../utils/adminOpsDisplay'
 import { AtgCargoGapsDetail } from './AdminOpsAtgCargoGaps.jsx'
+import { AtgCoverageLegend, AtgPortCoverage } from './AtgSourceCoverage.jsx'
 
 function isoSortValue(iso) {
   const n = iso ? new Date(iso).getTime() : 0
@@ -180,6 +181,19 @@ export function PurgeBatchTable({ batches, expectedCadence, t }) {
 export function AtgSyncDetail({ details, t }) {
   const ports = details?.ports ?? []
   if (!ports.length) return null
+
+  if (ports.some((port) => port.sources?.length)) {
+    return (
+      <div className="atg-coverage">
+        {ports
+          .filter((port) => port.sources?.length)
+          .map((port) => (
+            <AtgPortCoverage key={port.portId} port={port} hours={details.coverageHours} t={t} />
+          ))}
+        <AtgCoverageLegend t={t} />
+      </div>
+    )
+  }
 
   const rows = ports.map((port) => {
     const staleLabels = (port.staleSources ?? [])

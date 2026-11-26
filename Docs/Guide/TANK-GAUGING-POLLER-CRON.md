@@ -183,3 +183,11 @@ Or Task Scheduler calling `run-tank-gauging-poll.bat` / `aggregate-daily-cargo-p
 - Poller and purge each use a PostgreSQL advisory lock so overlapping cron ticks skip instead of double-running.
 - Cron log lines are JSON summaries (`ok`, `batchId`, `archived`, `deleted`, …). Per-row detail is in `tank_gauging_purge_log`.
 - Purging old purge_log rows (e.g. keep 90 days) is optional and not part of the daily job.
+
+## Source silence alert, coverage, and poll history (migration 157)
+
+- **System Health → ATG sync** shows reading coverage for the last 24 h per source (30-minute blocks: live, recovered from archive, missing).
+- A source is **silent** when it has stored no *live* sample for more than `ATG_SOURCE_SILENT_MINUTES` (default **45**, three missed 15-minute polls). Any silent source turns the ATG sync check unhealthy, which sends the Admin Ops alert email; gaps that already ended appear on the card (degraded) but do not alert.
+- `tank_gauging_poll_runs` keeps one row per poll of each source (result, HTTP status, fetched/saved/unmapped counts, error). The daily purge job prunes rows older than 30 days.
+- `tank_gauging_samples.origin` is `live` for poller rows and `archive-backfill` for rows imported by the Tankvision archive resync.
+- Cargo entry forms explain missing ATG data (source and time range) through `GET /tank-gauging/mass-delta` fields `gapSources` and `endpointQty`.

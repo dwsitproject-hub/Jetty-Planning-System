@@ -423,7 +423,7 @@ async function computeDirectionalVolumeDeltaForWindow(db, opts) {
   };
 }
 
-function computeDirectionalDeltaForWindow(db, opts) {
+export function computeDirectionalDeltaForWindow(db, opts) {
   const basis = opts.measurementBasis === 'volume' ? 'volume' : 'mass';
   if (basis === 'volume') {
     return computeDirectionalVolumeDeltaForWindow(db, opts);

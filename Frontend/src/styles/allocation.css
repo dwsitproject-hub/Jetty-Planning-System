@@ -8656,3 +8656,18 @@ tr.cargo-schedule-behind > td:first-child {
     flex-direction: row;
   }
 }
+
+.cargo-line-card__gap-notice {
+  margin: 0.4rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #ffcc80;
+  border-radius: var(--radius-sm, 6px);
+  background: #fff8e1;
+  color: #e65100;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.cargo-line-card__gap-notice-title {
+  font-weight: 600;
+}
