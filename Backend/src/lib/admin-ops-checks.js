@@ -134,12 +134,14 @@ export async function checkAtgSync(db) {
   let status = 'unknown';
   if (totalEnabled === 0) {
     status = 'unknown';
-  } else if (totalStale === 0 && totalGap === 0) {
-    status = 'healthy';
-  } else if (totalStale < totalEnabled) {
+  } else if (totalStale > 0) {
+    // Any silent source is unhealthy: the alert email fires on this status, and the other
+    // sources keep a port looking fine while one source's tanks lose readings.
+    status = 'unhealthy';
+  } else if (totalGap > 0) {
     status = 'degraded';
   } else {
-    status = 'unhealthy';
+    status = 'healthy';
   }
 
   const silentMinutes = Math.round(silentMs / 60000);
