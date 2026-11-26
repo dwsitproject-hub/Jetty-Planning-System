@@ -19,7 +19,7 @@ import { validateMulterFileList } from '../lib/upload-mime.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { assertNotStale } from '../lib/optimistic-lock.js';
 import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
-import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
+import { POST_CHECK_AUTO_KEYS, promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
 import { triggerPartnerScheduleIfPartnerTimesChanged } from '../lib/integration-webhooks.js';
 import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
@@ -37,14 +37,6 @@ import {
 } from '../lib/sampling-commodity-qc.js';
 import { getSiCommodityOptionsForOperation } from '../lib/si-commodity-options.js';
 import { assertFieldMenuSourceEditable } from '../lib/field-queue.js';
-
-/** Final checks: promote to POST_OPS and move the partner Cargo Done stage. */
-const POST_CHECK_AUTO_KEYS = new Set([
-  'final_inspection',
-  'final_tank_inspection',
-  'final_hold_inspection',
-  'final_sounding',
-]);
 
 const router = express.Router();
 const ALLOWED_PHASES = new Set(['Pre-Checking', 'Operational', 'Post-Checking']);
