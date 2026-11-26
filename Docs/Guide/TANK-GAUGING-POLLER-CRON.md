@@ -191,3 +191,17 @@ Or Task Scheduler calling `run-tank-gauging-poll.bat` / `aggregate-daily-cargo-p
 - `tank_gauging_poll_runs` keeps one row per poll of each source (result, HTTP status, fetched/saved/unmapped counts, error). The daily purge job prunes rows older than 30 days.
 - `tank_gauging_samples.origin` is `live` for poller rows and `archive-backfill` for rows imported by the Tankvision archive resync.
 - Cargo entry forms explain missing ATG data (source and time range) through `GET /tank-gauging/mass-delta` fields `gapSources` and `endpointQty`.
+
+### Recover a source's readings for a time range (manual)
+
+Use when a source (not a single cargo line) lost readings, for example after an ATG server outage, or when the affected cargo entry was saved as Manual and no longer appears in ATG cargo coverage. It reads the Tankvision archive and inserts only missing samples, flagged `origin = 'archive-backfill'`.
+
+```bash
+# dry run: reads the archive, writes nothing
+node scripts/recover-atg-source-range.mjs --port=1 --source=http://172.16.250.15   --from=2026-11-25T15:00:00Z --to=2026-11-26T00:30:00Z
+# apply: one transaction; if any tank fails to download, nothing is written (exit code 2)
+node scripts/recover-atg-source-range.mjs --port=1 --source=http://172.16.250.15   --from=2026-11-25T15:00:00Z --to=2026-11-26T00:30:00Z --apply
+```
+
+Times need a zone (`Z` or `+07:00`); the window is limited to 7 days; `--tank=3203,3502` limits it to some tanks. Afterwards the System Health ATG sync bar shows the stretch as recovered, and the cargo entry form can read ATG for that window again.
+
