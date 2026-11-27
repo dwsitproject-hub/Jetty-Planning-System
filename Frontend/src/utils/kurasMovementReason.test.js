@@ -35,3 +35,13 @@ test('describeEntryMovement shows pending until the server has decided', () => {
   const changed = describeEntryMovement(t, { movementType: 'normal', persistedMovement: { type: 'kuras', source: 'auto' } })
   assert.match(changed.text, /^kurasReasonManualNoName/)
 })
+
+test('entry label: Normal, Kuras, Mixed with palkas, Normal then Kuras, unclassified', async () => {
+  const { entryMovementLabel } = await import('./kurasMovementReason.js')
+  const t = (k) => ({ cargoOpsMovementNormal: 'Normal', cargoOpsMovementMixedShort: 'Mixed', cargoOpsMovementNormalThenKuras: 'Normal, then Kuras' }[k] ?? k)
+  assert.equal(entryMovementLabel(t, { movementType: 'normal' }).text, 'Normal')
+  assert.equal(entryMovementLabel(t, { movementType: 'kuras' }).type, 'kuras')
+  assert.equal(entryMovementLabel(t, { movementType: 'mixed', kurasPeriods: [{ palka: '1B' }, { palka: '2A' }, { palka: '1B' }] }).text, 'Mixed (1B, 2A)')
+  assert.equal(entryMovementLabel(t, { movementType: 'normal', kurasStartedAt: '2026-11-23T05:40:00Z' }).text, 'Normal, then Kuras')
+  assert.equal(entryMovementLabel(t, {}), null)
+})

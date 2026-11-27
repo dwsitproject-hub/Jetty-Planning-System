@@ -3,6 +3,7 @@
  */
 
 import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from './atg-window-rate.js';
+import { loadKurasPeriodsByLine } from './kuras-periods.js';
 import { getHourlyOperationalProgress, aggregateHourlyProgressForOperation, computeDirectionalMovedQtyForWindow } from './atg-hourly-progress.js';
 import {
   readAtgQtyFromResult,
@@ -437,6 +438,7 @@ export async function loadOperationProgressContext(db, operationId) {
   const linesR = await db.query(
     `SELECT l.id, l.qty, l.manual_qty, l.atg_qty_mode, l.started_at, l.ended_at,
             l.atg_hourly_detail, l.commodity_id, l.manual_override,
+            l.movement_type, l.kuras_started_at,
             COALESCE(
               (SELECT jsonb_object_agg(mt.id::text, mt.code)
                FROM operation_cargo_load_line_tanks clt2
@@ -471,6 +473,8 @@ export async function loadOperationProgressContext(db, operationId) {
     startedAt: l.started_at ? new Date(l.started_at).toISOString() : null,
     endedAt: l.ended_at ? new Date(l.ended_at).toISOString() : null,
     atgHourlyDetail: Array.isArray(l.atg_hourly_detail) ? l.atg_hourly_detail : null,
+    movementType: l.movement_type ?? null,
+    kurasStartedAt: l.kuras_started_at ? new Date(l.kuras_started_at).toISOString() : null,
     tankIds: (l.tank_ids || []).map(Number).filter((n) => n > 0),
     manualOverrideTankIds: overrideTankIdsFromJson(l.manual_override),
     manualOverrideNote: l.manual_override?.note ?? null,
@@ -480,6 +484,8 @@ export async function loadOperationProgressContext(db, operationId) {
     commodityName: l.commodity_name ? String(l.commodity_name).trim() : null,
     commodityGroup: l.commodity_group ? String(l.commodity_group).trim() : null,
   }));
+  const periodsByLine = await loadKurasPeriodsByLine(db, lines.filter((l) => l.movementType === 'mixed').map((l) => l.id));
+  for (const l of lines) l.kurasPeriods = periodsByLine.get(l.id) || [];
 
   const siR = await db.query(
     `SELECT tot.s AS qty, mc.code AS metric_code,

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { downloadHourlyTransferRatesExcel } from '../data/hourlyTransferRatesExcel'
+import { downloadHourlyTransferRatesExcel, formatHourMovementType } from '../data/hourlyTransferRatesExcel'
 import { expandHourlyBucketsForDisplay, formatDisplayCargoQty, formatHourlyRangeDisplay } from '../utils/hourlyCargoDisplay'
 
 function formatRate(n, unit = 'MT') {
@@ -162,6 +162,7 @@ export default function HourlyCargoProgressTable({
                   {showTankColumn ? <th>{t('cargoHourlyColTank')}</th> : null}
                   <th title={t('cargoHourlyMovedSignHint')}>{t('cargoHourlyColQty')}</th>
                   <th>{t('cargoHourlyColRate')}</th>
+                  <th>{t('cargoHourlyColMovement')}</th>
                   <th>{t('cargoHourlyColStatus')}</th>
                   {!compact ? <th>{t('cargoHourlyColSource')}</th> : null}
                 </tr>
@@ -188,6 +189,14 @@ export default function HourlyCargoProgressTable({
                     ) : null}
                     <td>{formatDisplayCargoQty(row.tankDisplayQtyMoved, unit)}</td>
                     <td>{formatRate(row.rateTph, unit)}</td>
+                    <td>
+                      <span
+                        className={`hourly-cargo-progress__type hourly-cargo-progress__type--${row.movementType || 'normal'}`}
+                        title={row.kurasPalkas?.length ? t('cargoHourlyPalkaTip', { palkas: row.kurasPalkas.join(', ') }) : undefined}
+                      >
+                        {formatHourMovementType(row.movementType || 'normal', row.kurasPalkas, t)}
+                      </span>
+                    </td>
                     <td>{movementBadge(row.movementStatus, t)}</td>
                     {!compact ? <td>{sourceBadge(row.source, t)}</td> : null}
                   </tr>

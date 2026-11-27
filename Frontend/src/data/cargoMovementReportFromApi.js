@@ -24,6 +24,7 @@ export const CARGO_MOVEMENT_HOURLY_COLUMNS = [
   { key: 'tank', label: 'Tank' },
   { key: 'moved', label: 'Moved' },
   { key: 'rate', label: 'Rate' },
+  { key: 'movementType', label: 'Movement type' },
   { key: 'status', label: 'Status' },
   { key: 'source', label: 'Source' },
 ]

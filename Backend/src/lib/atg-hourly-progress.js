@@ -18,6 +18,7 @@ import {
   nearestSampleAtOrBefore,
   nearestVolumeSampleAtOrBefore,
 } from './atg-window-rate.js';
+import { strongerMovement, tagBucketsWithMovement } from './hour-movement.js';
 
 export const DEFAULT_FLAT_RATE_THRESHOLD_TPH = DEFAULT_FLAT_RATE_THRESHOLD_MT;
 export const DEFAULT_MIN_QTY_MOVED_T = DEFAULT_MIN_QTY_MOVED_MT;
@@ -843,6 +844,8 @@ export function mergeHourlyBuckets(bucketLists, thresholds = {}) {
       prev.qtyMoved = (Number(prev.qtyMoved) || 0) + (Number(b.qtyMoved) || 0);
       prev.displayQtyMoved = (Number(prev.displayQtyMoved) || 0) + (Number(b.displayQtyMoved) || 0);
       prev.directionMismatch = Boolean(prev.directionMismatch || b.directionMismatch);
+      prev.movementType = strongerMovement(prev.movementType, b.movementType);
+      prev.kurasPalkas = [...new Set([...(prev.kurasPalkas || []), ...(b.kurasPalkas || [])])];
       prev.tankDetail = mergeTankDetailArrays(prev.tankDetail, b.tankDetail);
       if (prev.source !== b.source && b.source) {
         prev.source = prev.source === b.source ? prev.source : 'hybrid';
@@ -1112,7 +1115,7 @@ export async function getHourlyBucketsForLineEntry(db, ctx, line, opts = {}) {
  * @param {object} [opts]
  */
 export async function getHourlyProgressForLine(db, ctx, line, opts = {}) {
-  const hourlyBuckets = await getHourlyBucketsForLineEntry(db, ctx, line, opts);
+  const hourlyBuckets = tagBucketsWithMovement(await getHourlyBucketsForLineEntry(db, ctx, line, opts), line);
   const movedQty = hourlyBuckets.reduce((s, b) => s + (Number(b.qtyMoved) || 0), 0);
   const unit = ctx.siMetric || 'MT';
   return {
@@ -1147,7 +1150,7 @@ export async function getHourlyOperationalProgress(db, ctx, opts = {}) {
 
   for (const line of ctx.lines) {
     if (!line.startedAt) continue;
-    const lineBuckets = await getHourlyBucketsForLineEntry(db, ctx, line, opts);
+    const lineBuckets = tagBucketsWithMovement(await getHourlyBucketsForLineEntry(db, ctx, line, opts), line);
     if (lineBuckets.length) allBucketLists.push(lineBuckets);
   }
 

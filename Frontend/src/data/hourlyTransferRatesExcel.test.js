@@ -54,3 +54,18 @@ describe('hourlyTransferRatesExcel', () => {
     assert.equal(formatHourlySourceLabel('hybrid'), 'HYBRID')
   })
 })
+
+describe('movement type per hour', () => {
+  it('hours carry their movement type, and Mixed lists the palkas', async () => {
+  const { formatHourMovementType, buildHourlyTransferRatesExportRows } = await import('./hourlyTransferRatesExcel.js')
+  assert.equal(formatHourMovementType('normal'), 'Normal')
+  assert.equal(formatHourMovementType('kuras'), 'Kuras')
+  assert.equal(formatHourMovementType('mixed', ['1B', '2A']), 'Mixed (1B, 2A)')
+  assert.equal(formatHourMovementType(null), '—')
+  const rows = buildHourlyTransferRatesExportRows({
+    vesselName: 'BG X',
+    hourlyBuckets: [{ hourStart: '2026-11-23T05:00:00.000Z', hourEnd: '2026-11-23T06:00:00.000Z', qtyMoved: 10, displayQtyMoved: 10, rateTph: 10, movementStatus: 'active', source: 'atg', movementType: 'mixed', kurasPalkas: ['1B'] }],
+  })
+  assert.equal(rows[0].movementType, 'Mixed (1B)')
+  })
+})

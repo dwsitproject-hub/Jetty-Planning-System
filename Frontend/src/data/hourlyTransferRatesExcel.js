@@ -8,6 +8,7 @@ export const HOURLY_TRANSFER_RATES_COLUMNS = [
   { key: 'tank', label: 'Tank' },
   { key: 'moved', label: 'Moved' },
   { key: 'rate', label: 'Rate' },
+  { key: 'movementType', label: 'Movement type' },
   { key: 'status', label: 'Status' },
   { key: 'source', label: 'Source' },
 ]
@@ -28,6 +29,17 @@ const DEFAULT_SOURCE_LABELS = {
 function formatRateForExport(n, unit = 'MT') {
   if (n == null || !Number.isFinite(Number(n))) return '—'
   return `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 })} ${unit}/h`
+}
+
+const MOVEMENT_TYPE_DEFAULT = { normal: 'Normal', kuras: 'Kuras', mixed: 'Mixed' }
+
+/** Movement type of an hour for the table and the exports; Mixed lists the palkas being cleaned. */
+export function formatHourMovementType(type, palkas, t) {
+  if (!type) return '—'
+  const key = { normal: 'cargoOpsMovementNormal', kuras: 'cargoOpsMovementKuras', mixed: 'cargoOpsMovementMixedShort' }[type]
+  const label = (key && t?.(key)) || MOVEMENT_TYPE_DEFAULT[type] || String(type)
+  const short = type === 'kuras' ? 'Kuras' : label
+  return type === 'mixed' && Array.isArray(palkas) && palkas.length ? `${short} (${palkas.join(', ')})` : short
 }
 
 export function formatHourlyStatusLabel(status, t) {
@@ -86,6 +98,7 @@ export function buildHourlyTransferRatesExportRows({
     tank: row.tankCode ? (row.tankOverride ? `${row.tankCode} (override)` : row.tankCode) : '—',
     moved: formatDisplayCargoQty(row.tankDisplayQtyMoved, unit),
     rate: formatRateForExport(row.rateTph, unit),
+    movementType: formatHourMovementType(row.movementType, row.kurasPalkas, t),
     status: formatHourlyStatusLabel(row.movementStatus, t),
     source: formatHourlySourceLabel(row.source, t),
   }))

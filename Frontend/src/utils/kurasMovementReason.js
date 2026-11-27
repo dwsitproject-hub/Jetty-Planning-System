@@ -80,3 +80,20 @@ export function describeEntryMovement(t, draft, { locale, formatAt } = {}) {
   }
   return { badge: null, text: t('cargoOpsMovementPending') }
 }
+
+/**
+ * One-line movement label of a saved cargo entry for lists and tables.
+ * @returns {{ type: 'normal'|'kuras'|'mixed', text: string }|null} null when the entry was not classified yet
+ */
+export function entryMovementLabel(t, line) {
+  const type = line?.movementType
+  if (type === 'kuras') return { type: 'kuras', text: movementTypeLabel(t, 'kuras') }
+  if (type === 'mixed') {
+    const palkas = [...new Set((line.kurasPeriods || []).map((p) => p.palka).filter(Boolean))]
+    const base = movementTypeLabel(t, 'mixed')
+    return { type: 'mixed', text: palkas.length ? `${base} (${palkas.join(', ')})` : base }
+  }
+  if (line?.kurasStartedAt) return { type: 'kuras', text: t('cargoOpsMovementNormalThenKuras') }
+  if (type === 'normal') return { type: 'normal', text: movementTypeLabel(t, 'normal') }
+  return null
+}

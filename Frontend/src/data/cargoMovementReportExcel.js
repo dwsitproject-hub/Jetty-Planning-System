@@ -87,6 +87,7 @@ export function buildCargoMovementReportWorkbook(blocks, meta = {}) {
   sheet.getColumn(4).width = 16
   sheet.getColumn(5).width = 18
   sheet.getColumn(6).width = 14
+  sheet.getColumn(7).width = 20
 
   return workbook
 }

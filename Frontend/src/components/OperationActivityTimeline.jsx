@@ -18,6 +18,7 @@ import {
 } from '../utils/atBerthActivityLogNav'
 import { operationalActivityEventStatusForTimeline } from '../utils/operationalActivityEventStatus.js'
 import { QcDecisionPillRow } from './qc/QcDecisionPill'
+import { entryMovementLabel } from '../utils/kurasMovementReason.js'
 
 function cargoLineCommodityLabel(line) {
   const short = String(line?.commodityShortName || '').trim()
@@ -905,6 +906,7 @@ export default function OperationActivityTimeline({
                                       <th className="operation-activity-timeline__time">{t('cargoOpsLineEnd')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsQtyMovement')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsRate')} (/h)</th>
+                                      <th>{t('cargoHourlyColMovement')}</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -954,6 +956,12 @@ export default function OperationActivityTimeline({
                                             </td>
                                             <td className="operation-activity-timeline__time">
                                               {rate != null ? `${rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}${metricSuffix}` : '—'}
+                                            </td>
+                                            <td>
+                                              {(() => {
+                                                const mv = entryMovementLabel(t, line)
+                                                return mv ? <span className={`hourly-cargo-progress__type hourly-cargo-progress__type--${mv.type}`}>{mv.text}</span> : '—'
+                                              })()}
                                             </td>
                                           </tr>
                                         )
