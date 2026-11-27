@@ -75,6 +75,8 @@ export function buildOperatorCargoSegments(activities, purpose, opts = {}) {
         showAtgHourly: commodityType === 'Liquid',
         showManualHourly: commodityType === 'Solid' || atgQtyMode === 'manual',
         qtyLabel: Number.isFinite(qty) && qty > 0 ? `${formatQtyNumber(qty)} MT` : null,
+        movementType: line.movementType ?? null,
+        kurasPeriods: Array.isArray(line.kurasPeriods) ? line.kurasPeriods : [],
       })
     })
   }

@@ -1314,3 +1314,63 @@
 .operator-milestone__flow-stopped {
   grid-column: 1 / -1;
 }
+
+/* Kuras on another palka (movement type Mixed) */
+.operator-cargo-segment__badge--mixed {
+  background: #fef3c7;
+  color: #92400e;
+}
+.operator-kuras-list {
+  margin-top: var(--spacing-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+.operator-kuras-done {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary, #64748b);
+}
+.operator-kuras-running {
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2) var(--spacing-3);
+}
+.operator-kuras-running__label {
+  font-size: var(--font-size-small);
+}
+.operator-kuras-running__title {
+  font-weight: var(--font-weight-semibold);
+}
+.operator-kuras-running__meta {
+  font-size: var(--font-size-small);
+  margin-bottom: var(--spacing-2);
+}
+.operator-modal .operator-kuras__palka {
+  width: 100%;
+  min-height: 52px;
+  font-size: 1.4rem;
+  text-align: center;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-medium);
+  box-sizing: border-box;
+}
+.operator-kuras__sub {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary, #64748b);
+}
+.operator-kuras__used {
+  align-items: center;
+  margin-top: var(--spacing-2);
+}
+.operator-kuras__link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+}

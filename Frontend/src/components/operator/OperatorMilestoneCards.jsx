@@ -17,6 +17,10 @@ export default function OperatorMilestoneCards({
   onStopCargo,
   /** Pause flow without ending the cargo entry; null while a stop is already open. */
   onFlowStopped = null,
+  /** Start kuras on another palka (movement type Mixed); null when not available. */
+  onKurasStart = null,
+  onStopKuras = null,
+  kurasRunning = false,
   onCompleteOther,
   onEditTimestamp,
   onEditCargoSegment,
@@ -64,6 +68,7 @@ export default function OperatorMilestoneCards({
                 canEdit={canEdit}
                 busy={busy}
                 onEditSegment={onEditCargoSegment}
+                onStopKuras={onStopKuras}
               />
             ) : null}
 
@@ -96,6 +101,16 @@ export default function OperatorMilestoneCards({
                   onClick={onFlowStopped}
                 >
                   {t('noFlow.flowStopped')}
+                </button>
+              ) : null}
+              {isCargo && showStop && onKurasStart && !kurasRunning ? (
+                <button
+                  type="button"
+                  className="op-btn op-btn--soft operator-milestone__flow-stopped"
+                  disabled={!canEdit || busy}
+                  onClick={onKurasStart}
+                >
+                  {t('kuras.anotherPalka')}
                 </button>
               ) : null}
               {showComplete ? (

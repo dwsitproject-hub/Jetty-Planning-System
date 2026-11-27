@@ -15,6 +15,9 @@ import { NoFlowLogView } from '../../components/noflow/NoFlowLogPanel.jsx'
 import OperatorNoFlowBanner from '../../components/operator/OperatorNoFlowBanner'
 import OperatorStopReasonSheet from '../../components/operator/OperatorStopReasonSheet'
 import { useOperatorNoFlow } from '../../components/operator/useOperatorNoFlow'
+import OperatorKurasSheet from '../../components/operator/OperatorKurasSheet'
+import { useOperatorKuras } from '../../components/operator/useOperatorKuras'
+import useFeatureFlags from '../../hooks/useFeatureFlags'
 
 export default function OperatorExecutionPage() {
   const { operationId: operationIdParam } = useParams()
@@ -35,6 +38,21 @@ export default function OperatorExecutionPage() {
     milestones: exec.milestones,
     stopCargo: exec.stopCargo,
   })
+  const features = useFeatureFlags()
+  const cargoSegs = useMemo(
+    () => (exec.milestones || []).find((m) => m.key === 'cargo_operations')?.cargoSegments || [],
+    [exec.milestones]
+  )
+  const kuras = useOperatorKuras({
+    operationId: Number.isFinite(operationId) ? operationId : null,
+    segments: cargoSegs,
+    tz: exec.tz,
+    reload: exec.reload,
+    enabled: features.netRate && editable,
+  })
+  // Stop cargo goes through the stop reason sheet unless a stop is already open.
+  const stopCargoFlow = noFlow.openStop ? exec.stopCargo : () => noFlow.openSheet('cargo_stop')
+  const handleStopCargo = kuras.running ? () => kuras.openSheet('stopCargo') : stopCargoFlow
   const cargoActive = (exec.milestones || []).some((m) => m.key === 'cargo_operations' && m.state === 'active')
 
   const lastCargoCommodityId = exec.lastCargoCommodityId ?? null
@@ -214,7 +232,10 @@ export default function OperatorExecutionPage() {
             canEdit={editable}
             busy={exec.busy}
             onStart={handleStart}
-            onStopCargo={noFlow.openStop ? exec.stopCargo : () => noFlow.openSheet('cargo_stop')}
+            onStopCargo={handleStopCargo}
+            onKurasStart={kuras.enabled ? () => kuras.openSheet('start') : null}
+            onStopKuras={kuras.enabled ? () => kuras.openSheet('stop') : null}
+            kurasRunning={Boolean(kuras.running)}
             onFlowStopped={noFlow.openStop ? null : () => noFlow.openSheet('flow_pause')}
             onCompleteOther={exec.completeOther}
             onEditTimestamp={handleEditMilestone}
@@ -258,6 +279,24 @@ export default function OperatorExecutionPage() {
         onCancel={noFlow.closeSheet}
         onConfirm={noFlow.confirm}
         onStopOnly={noFlow.stopWithoutReason}
+      />
+
+      <OperatorKurasSheet
+        sheet={kuras.sheet}
+        running={kuras.running}
+        palkasUsed={kuras.palkasUsed}
+        busy={kuras.busy || exec.busy}
+        nowLocal={exec.nowLocal}
+        onCancel={kuras.closeSheet}
+        onStart={kuras.start}
+        onStop={kuras.stop}
+        onEndWithCargo={async () => {
+          if (await kuras.stop({})) stopCargoFlow()
+        }}
+        onKeepRunning={() => {
+          kuras.closeSheet()
+          stopCargoFlow()
+        }}
       />
 
       <OperatorEditTimestampModal

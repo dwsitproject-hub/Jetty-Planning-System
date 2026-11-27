@@ -40,7 +40,7 @@ import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js'
 import { loadSamplingDecisionPills } from '../lib/sampling-commodity-qc.js';
 import { parseMovementTypeInput } from '../lib/kuras-movement.js';
 import { kurasStartInsideEntry, parseKurasStartInput, resolveKurasStartColumns } from '../lib/kuras-start.js';
-import { insertKurasPeriods, loadKurasPeriodsByLine, parseKurasPeriods } from '../lib/kuras-periods.js';
+import { insertKurasPeriods, loadKurasPeriodsByLine, loadPriorKurasPeriods, parseKurasPeriods } from '../lib/kuras-periods.js';
 import { isFeatureOn } from '../lib/feature-flags.js';
 import {
   loadPriorMovementTags,
@@ -427,8 +427,9 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     if (movementParsed.value === 'mixed' && !isFeatureOn('netRate')) {
       return { ok: false, status: 400, error: `cargoLoadLines[${i}].movementType mixed is not available` };
     }
-    let kurasPeriods = [];
-    if (movementParsed.value === 'mixed') {
+    // undefined = the payload does not mention periods (phone stop, timestamp edit): keep what is stored
+    let kurasPeriods = row.kurasPeriods === undefined ? undefined : [];
+    if (row.kurasPeriods !== undefined && movementParsed.value === 'mixed') {
       const periodsParsed = parseKurasPeriods(row.kurasPeriods, {
         lineIndex: i,
         toIso: (s) => parseScheduleInstantToIso(s, scheduleTz),
@@ -609,7 +610,7 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     manualOverrideTankIds: p.overrideEntries.map((e) => e.tankId),
     movementType: p.movementType,
     kurasStart: p.kurasStart,
-    kurasPeriods: p.kurasPeriods || [],
+    kurasPeriods: p.kurasPeriods,
   }));
   return { ok: true, lines, siCommodityOptions };
 }
@@ -765,7 +766,7 @@ async function refreshOperationalProgressAfterCargoSave(q, operationId) {
 }
 
 async function insertCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const { commodityType = 'Liquid', measurementBasis = 'mass', priorTags = new Map(), actorUserId = null } = opts;
+  const { commodityType = 'Liquid', measurementBasis = 'mass', priorTags = new Map(), priorPeriods = new Map(), actorUserId = null } = opts;
   const enriched = await attachAtgMassSnapshots(client, lines, { commodityType, measurementBasis });
   const lineIds = [];
   const out = [];
@@ -816,7 +817,8 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
     const loadLineId = Number(ins.rows[0].id);
     lineIds.push(loadLineId);
     await insertLoadLineTanks(client, loadLineId, ln.tankIds || []);
-    const savedPeriods = await insertKurasPeriods(client, loadLineId, ln.kurasPeriods || []);
+    const keptPeriods = ln.kurasPeriods === undefined ? priorPeriods.get(new Date(ln.startIso).toISOString()) || [] : ln.kurasPeriods;
+    const savedPeriods = await insertKurasPeriods(client, loadLineId, tag.movementType === 'mixed' ? keptPeriods : []);
     out.push({ ...mapCargoLoadLineRow(ins.rows[0]), kurasPeriods: savedPeriods });
   }
   const tankMap = await fetchTanksForLoadLineIds(client, lineIds);
@@ -828,10 +830,11 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
 
 async function replaceCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
   const priorTags = await loadPriorMovementTags(client, operationalActivityId);
+  const priorPeriods = await loadPriorKurasPeriods(client, operationalActivityId);
   await client.query(`DELETE FROM operation_cargo_load_lines WHERE operational_activity_id = $1`, [
     operationalActivityId,
   ]);
-  return insertCargoLoadLines(client, operationalActivityId, lines, { ...opts, priorTags });
+  return insertCargoLoadLines(client, operationalActivityId, lines, { ...opts, priorTags, priorPeriods });
 }
 
 async function loadOperationPortId(q, operationId) {

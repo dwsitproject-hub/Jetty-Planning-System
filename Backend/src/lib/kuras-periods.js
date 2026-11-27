@@ -111,3 +111,25 @@ export async function loadKurasPeriodsByLine(db, loadLineIds) {
   }
   return out;
 }
+
+/**
+ * Periods of the entries of one activity before a re-save replaces its lines, keyed by the entry
+ * start (the same key the movement tags use): Map<startIso, Array<{ palka, startedAt, endedAt, qty }>>.
+ */
+export async function loadPriorKurasPeriods(db, operationalActivityId) {
+  const r = await db.query(
+    `SELECT l.started_at AS line_start, p.palka, p.started_at, p.ended_at, p.qty
+     FROM operation_cargo_kuras_periods p
+     JOIN operation_cargo_load_lines l ON l.id = p.load_line_id
+     WHERE l.operational_activity_id = $1 AND l.started_at IS NOT NULL
+     ORDER BY p.started_at ASC, p.id ASC`,
+    [operationalActivityId]
+  );
+  const out = new Map();
+  for (const row of r.rows) {
+    const key = new Date(row.line_start).toISOString();
+    if (!out.has(key)) out.set(key, []);
+    out.get(key).push({ palka: row.palka, startedAt: toIso(row.started_at), endedAt: toIso(row.ended_at), qty: row.qty != null ? Number(row.qty) : null });
+  }
+  return out;
+}
