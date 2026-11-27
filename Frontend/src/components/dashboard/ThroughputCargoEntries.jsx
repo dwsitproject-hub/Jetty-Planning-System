@@ -17,6 +17,7 @@ export default function ThroughputCargoEntries({ entries }) {
         <tr>
           <th>Entry</th>
           <th>Tank</th>
+          <th>Movement</th>
           <th>Start</th>
           <th>End</th>
           <th className="mgmt-r">Qty (MT)</th>
@@ -28,6 +29,7 @@ export default function ThroughputCargoEntries({ entries }) {
           <tr key={e.key}>
             <td>Entry {e.entry}</td>
             <td>{e.tank}</td>
+            <td>{e.movement ? <span className={`mgmt-move-tag mgmt-move-tag--${e.movement.type}`}>{e.movement.text}</span> : '—'}</td>
             <td>{e.startAt ? formatDateTimeDisplay(e.startAt) : '—'}</td>
             <td>{e.inProgress ? 'In progress' : (e.endAt ? formatDateTimeDisplay(e.endAt) : '—')}</td>
             <td className="mgmt-r">{fmtQty(e.qty)}</td>

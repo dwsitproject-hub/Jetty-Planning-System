@@ -3,6 +3,7 @@
  * Untagged lines count only when the call rolls up to a single commodity group.
  */
 import { formatCargoLineTanksLabel } from './cargoProgressResolvers.js'
+import { entryMovementLabelEn } from './kurasMovementReason.js'
 import { expandVoyageToProductSlices, productKeyFromCommodity } from './managementDashboardProduct.js'
 
 function lineProductKey(line) {
@@ -61,6 +62,7 @@ export function cargoMovementEntriesForSlice(events, row) {
       inProgress: Boolean(startAt) && !endAt,
       qty,
       rate,
+      movement: entryMovementLabelEn(line),
     }
   })
 }

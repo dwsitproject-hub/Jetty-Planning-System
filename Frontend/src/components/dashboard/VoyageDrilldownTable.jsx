@@ -272,6 +272,9 @@ export function VoyageBlock({
                 vessel: (
                   <td>
                     <b>{r.vessel}</b>
+                    {(r.rateBreakdown?.movementKinds || []).map((k) => (
+                      <span key={k} className={`mgmt-move-tag mgmt-move-tag--${k}`}>{k === 'mixed' ? 'Mixed' : 'Kuras'}</span>
+                    ))}
                     <br />
                     <span className="text-steel" style={{ fontSize: 11 }}>{r.code}</span>
                   </td>

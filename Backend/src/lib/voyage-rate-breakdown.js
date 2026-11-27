@@ -86,6 +86,7 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
   let totalLineQty = 0;
   let kurasStart = null;
   const mixedPeriods = [];
+  const kinds = new Set();
   const mixedSpans = [];
   let mixedQtyKnown = true;
   for (const line of lines) {
@@ -93,6 +94,7 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
     if (!split) continue;
     totalLineQty += lineQty(line);
     if (line.movementType === 'mixed') {
+      kinds.add('mixed');
       // pumping carries on for the whole entry; each cleaned palka is a period inside it
       normalSpans.push([split.s, split.e]);
       let lineKurasQty = 0;
@@ -115,6 +117,7 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
       normalSpans.push([split.s, split.e]);
       continue;
     }
+    kinds.add('kuras');
     if (split.k > split.s) normalSpans.push([split.s, split.k]);
     kurasSpans.push([split.k, split.e]);
     kurasLineQty += kurasQtyOfLine(line, split, hoursByLine.get(line.id));
@@ -172,6 +175,8 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
     },
     stopCount: stops.stops.length,
     // detected stops (gaps, flat ATG) that still need a reason, in hours
+    // movement kinds beyond Normal that the voyage had: 'kuras' (whole entry or from a start point) and 'mixed'
+    movementKinds: [...kinds],
     mixed: mixedPeriods.length
       ? { hours: round2(spanHours(unionSpans(mixedSpans))), periods: mixedPeriods, qtyKnown: mixedQtyKnown }
       : null,

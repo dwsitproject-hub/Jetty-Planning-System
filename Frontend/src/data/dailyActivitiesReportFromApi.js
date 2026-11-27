@@ -3,6 +3,7 @@
  */
 
 import { operationalActivityEventStatus } from '../utils/operationalActivityEventStatus.js'
+import { entryMovementLabelEn } from '../utils/kurasMovementReason.js'
 
 export const DAILY_ACTIVITIES_HEADER_DATETIME_KEYS = new Set([
   'eta',
@@ -187,6 +188,10 @@ function buildRemarkForTimelineEvent(ev) {
   if (ev.skipReason) remarkParts.push(`Skip: ${ev.skipReason}`)
   if (ev.reason) remarkParts.push(ev.reason)
   if (ev.cargoHandlingMethodName) remarkParts.push(ev.cargoHandlingMethodName)
+  if (ev.milestoneKey === 'cargo_operations' && Array.isArray(ev.cargoLoadLines)) {
+    const labels = [...new Set(ev.cargoLoadLines.map((l) => entryMovementLabelEn(l)?.text).filter(Boolean))]
+    if (labels.length) remarkParts.push(`Movement: ${labels.join(', ')}`)
+  }
   return remarkParts.length ? remarkParts.join(' · ') : '—'
 }
 

@@ -6,6 +6,7 @@ import {
   buildPlanRefByShipmentPlanId,
   buildSingleOperationReportBlock,
   buildVesselActivitiesTimelog,
+  timelineEventToTimelogRow,
   mapEventToTemplateId,
   operationIsEligibleForReport,
   operationScheduleOverlapsRange,
@@ -251,4 +252,13 @@ test('buildSingleOperationReportBlock includes pre-berth op when ETA is in date 
 
   const outOfRange = buildSingleOperationReportBlock(op, null, null, [], '2026-10-01', '2026-10-07', new Map())
   assert.equal(outOfRange, null)
+})
+
+test('cargo operations rows say the movement type of their entries', () => {
+  const row = timelineEventToTimelogRow({
+    milestoneKey: 'cargo_operations',
+    startAt: '2026-11-23T05:00:00Z',
+    cargoLoadLines: [{ movementType: 'mixed', kurasPeriods: [{ palka: '1B' }] }, { movementType: 'normal' }],
+  }, 'Operational - Cargo Operations')
+  assert.match(row.remark, /Movement: Mixed \(1B\), Normal/)
 })

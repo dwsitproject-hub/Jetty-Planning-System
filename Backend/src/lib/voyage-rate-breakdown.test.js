@@ -160,3 +160,16 @@ test('a Mixed entry without any period quantity is not split', () => {
   assert.equal(r.kuras.rateMtH, null);
   assert.equal(r.mixed.hours, 2);
 });
+
+test('movement kinds list Kuras and Mixed when the voyage had them', () => {
+  const none = buildRateBreakdown({ ...base, movedQty: 500, lines: [line(1, 0, 10, 500)], events: [] });
+  assert.deepEqual(none.movementKinds, []);
+  const kuras = buildRateBreakdown({ ...base, movedQty: 500, lines: [line(1, 0, 10, 500, { kurasStartedAt: iso(6) })], events: [] });
+  assert.deepEqual(kuras.movementKinds, ['kuras']);
+  const both = buildRateBreakdown({
+    ...base, movedQty: 800,
+    lines: [line(1, 0, 4, 300, { movementType: 'kuras' }), line(2, 4, 10, 500, { movementType: 'mixed', kurasPeriods: [{ palka: '1B', startAt: iso(5), endAt: iso(7), qty: 20 }] })],
+    events: [],
+  });
+  assert.deepEqual([...both.movementKinds].sort(), ['kuras', 'mixed']);
+});

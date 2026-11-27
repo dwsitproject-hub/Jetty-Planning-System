@@ -101,3 +101,18 @@ describe('cargoMovementEntriesForSlice', () => {
     assert.equal(entries[0].rate, 9)
   })
 })
+
+it('each entry carries its movement label for the throughput modal', () => {
+  const events = [{
+    milestoneKey: 'cargo_operations',
+    cargoLoadLines: [
+      { id: 1, startAt: '2026-11-23T05:00:00Z', endAt: '2026-11-23T06:00:00Z', qty: 100, movementType: 'mixed', kurasPeriods: [{ palka: '1B' }] },
+      { id: 2, startAt: '2026-11-23T07:00:00Z', endAt: '2026-11-23T08:00:00Z', qty: 50, movementType: 'kuras' },
+      { id: 3, startAt: '2026-11-23T09:00:00Z', endAt: '2026-11-23T10:00:00Z', qty: 50 },
+    ],
+  }]
+  const entries = cargoMovementEntriesForSlice(events, { productKey: 'cpo', productLabel: 'CPO', commodities: [] })
+  assert.equal(entries[0].movement.text, 'Mixed (1B)')
+  assert.equal(entries[1].movement.type, 'kuras')
+  assert.equal(entries[2].movement, null)
+})

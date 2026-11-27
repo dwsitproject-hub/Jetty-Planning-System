@@ -97,3 +97,15 @@ export function entryMovementLabel(t, line) {
   if (type === 'normal') return { type: 'normal', text: movementTypeLabel(t, 'normal') }
   return null
 }
+
+const EN_MOVEMENT_TEXT = {
+  cargoOpsMovementNormal: 'Normal',
+  cargoOpsMovementKuras: 'Kuras',
+  cargoOpsMovementMixedShort: 'Mixed',
+  cargoOpsMovementNormalThenKuras: 'Normal, then Kuras',
+}
+
+/** entryMovementLabel in English, for English-only tables and report text. */
+export function entryMovementLabelEn(line) {
+  return entryMovementLabel((key) => EN_MOVEMENT_TEXT[key] ?? key, line)
+}

@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { applyMovementCellStyle } from '../utils/movementExcelStyle.js'
 import { CARGO_MOVEMENT_HEADER_FIELDS, CARGO_MOVEMENT_HOURLY_COLUMNS } from './cargoMovementReportFromApi.js'
 import { buildHourlyTransferRatesExportRows } from './hourlyTransferRatesExcel.js'
 
@@ -74,6 +75,7 @@ export function buildCargoMovementReportWorkbook(blocks, meta = {}) {
       for (const dataRow of hourlyRows) {
         CARGO_MOVEMENT_HOURLY_COLUMNS.forEach((col, i) => {
           sheet.getCell(row, i + 1).value = dataRow[col.key] ?? '—'
+          if (col.key === 'movementType') applyMovementCellStyle(sheet.getCell(row, i + 1), dataRow[col.key])
         })
         row += 1
       }
