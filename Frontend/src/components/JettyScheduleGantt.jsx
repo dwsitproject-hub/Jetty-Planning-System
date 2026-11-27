@@ -14,7 +14,6 @@ import VisualizationPopoutButton from './VisualizationPopoutButton'
 import StickyFormOverlay from './StickyFormOverlay.jsx'
 import GanttDenseBlock from './GanttDenseBlock'
 import GanttStopOverlay from './GanttStopOverlay'
-import useFeatureFlags from '../hooks/useFeatureFlags'
 import useShowGanttStops from '../hooks/useShowGanttStops'
 import InteractiveTooltip from './InteractiveTooltip'
 import {
@@ -255,9 +254,8 @@ export default function JettyScheduleGantt({
   onCreatePlan,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
-  const features = useFeatureFlags()
   const [showStops, setShowStops] = useShowGanttStops()
-  const drawStops = features.ganttStops && showStops
+  const drawStops = showStops
   const isPlanProfile = popoutProfile === 'plan'
   const def = useMemo(() => defaultDateRangeInputsForProfile(popoutProfile), [popoutProfile])
   const [dateFrom, setDateFrom] = useState(def.from)
@@ -1426,14 +1424,12 @@ export default function JettyScheduleGantt({
 
   const legendContent = (
     <>
-      {features.ganttStops ? (
-        <label className="allocation-schedule__legend-item jetty-schedule-gantt__stops-toggle">
-          <input type="checkbox" checked={showStops} onChange={(e) => setShowStops(e.target.checked)} />
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--stop" />
-          {tAlloc('ganttShowStops', { defaultValue: 'Show stops' })}
-        </label>
-      ) : null}
-      {features.ganttStops && showStops ? (
+      <label className="allocation-schedule__legend-item jetty-schedule-gantt__stops-toggle">
+        <input type="checkbox" checked={showStops} onChange={(e) => setShowStops(e.target.checked)} />
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--stop" />
+        {tAlloc('ganttShowStops', { defaultValue: 'Show stops' })}
+      </label>
+      {showStops ? (
         <span className="allocation-schedule__legend-item">
           <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--stop-open" />
           {tAlloc('ganttLegendStopNoReason', { defaultValue: 'Stop, no reason yet' })}

@@ -29,7 +29,6 @@ import { cargoDoneToSailFromTimeline } from '../utils/managementDashboardCargoDo
 import { buildBerthHourSegments } from '../utils/managementDashboardBerthHours'
 import { dashboardWindowToRange } from '../utils/noFlowReportView'
 import StopHoursCard from '../components/dashboard/StopHoursCard'
-import useFeatureFlags from '../hooks/useFeatureFlags'
 import {
   cargoOperationWindowStartAt,
   computeBerthToStartCargoHours,
@@ -200,7 +199,6 @@ export default function ManagementDashboard() {
   const [rangeTo, setRangeTo] = useState('') // both set → period 'custom'
   const [purpose, setPurpose] = useState('All')
   const [voyageGroupBy, setVoyageGroupBy] = useState('voyage')
-  const features = useFeatureFlags()
   const [activeModal, setActiveModal] = useState(null)
   const [productDetail, setProductDetail] = useState(null)
   const [cargoRatesByOpId, setCargoRatesByOpId] = useState({})
@@ -365,8 +363,8 @@ export default function ManagementDashboard() {
 
   // waterfall on current-window sailed voyages
   const wf = useMemo(
-    () => buildBerthHourSegments(cur.sailedRows.filter((r) => r.berth), { purpose, split: features.netRate }),
-    [cur, purpose, features.netRate]
+    () => buildBerthHourSegments(cur.sailedRows.filter((r) => r.berth), { purpose, split: true }),
+    [cur, purpose]
   )
 
   const leagues = useMemo(() => {
@@ -1001,7 +999,7 @@ export default function ManagementDashboard() {
             </section>
           </div>
 
-          {features.noFlowReport ? <StopHoursCard range={stopRange} purpose={purpose} /> : null}
+          <StopHoursCard range={stopRange} purpose={purpose} />
 
           <section className="card mgmt-sec">
             <div className="mgmt-voyage-head">
@@ -1026,7 +1024,7 @@ export default function ManagementDashboard() {
               timelinesByOpId={timelinesByOpId}
               showIncoming={showProductIncoming}
               showOutgoing={showProductOutgoing}
-              breakdown={features.netRate}
+              breakdown
               groupBy={voyageGroupBy}
             />
           </section>

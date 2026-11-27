@@ -7,7 +7,6 @@ import {
   loadOperationProgressContext,
   summarizeCargoProgressContext,
 } from './operational-progress.js';
-import { isFeatureOn } from './feature-flags.js';
 import { buildRateBreakdown, loadRateBreakdownInputs } from './voyage-rate-breakdown.js';
 
 /** Match Frontend productKeyFromCommodity. */
@@ -230,7 +229,7 @@ export async function computeCargoRatesBulk(db, operationIds, opts = {}) {
   const ids = [...new Set((operationIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
   /** @type {Record<string, { voyage: Awaited<ReturnType<typeof computeVoyageCargoRate>>, byProduct: Record<string, Awaited<ReturnType<typeof computeProductCargoRate>>> }>} */
   const rates = {};
-  const extra = isFeatureOn('netRate') ? await loadRateBreakdownInputs(db, ids) : null;
+  const extra = await loadRateBreakdownInputs(db, ids);
 
   for (let i = 0; i < ids.length; i += concurrency) {
     const batch = ids.slice(i, i + concurrency);

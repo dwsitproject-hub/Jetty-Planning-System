@@ -1,7 +1,6 @@
 /**
  * GET /no-flow-report — stops and delays of the selected port for a period.
  * Query: from, to (ISO instants, default last 30 days), purpose (Loading|Unloading), jettyId.
- * Mounted behind FEATURE_NOFLOW_REPORT (404 while off).
  */
 import express from 'express';
 import { pool } from '../db.js';

@@ -41,7 +41,6 @@ import { loadSamplingDecisionPills } from '../lib/sampling-commodity-qc.js';
 import { parseMovementTypeInput } from '../lib/kuras-movement.js';
 import { kurasStartInsideEntry, parseKurasStartInput, resolveKurasStartColumns } from '../lib/kuras-start.js';
 import { insertKurasPeriods, loadKurasPeriodsByLine, loadPriorKurasPeriods, parseKurasPeriods } from '../lib/kuras-periods.js';
-import { isFeatureOn } from '../lib/feature-flags.js';
 import {
   loadPriorMovementTags,
   resolveMovementTypeColumns,
@@ -420,13 +419,8 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
 
     const movementParsed = parseMovementTypeInput(row.movementType ?? row.movement_type, i);
     if (!movementParsed.ok) return { ok: false, status: 400, error: movementParsed.error };
-    const kurasStartParsed = isFeatureOn('netRate')
-      ? parseKurasStartInput(row.kurasStart, i, (s) => parseScheduleInstantToIso(s, scheduleTz))
-      : { ok: true, value: undefined };
+    const kurasStartParsed = parseKurasStartInput(row.kurasStart, i, (s) => parseScheduleInstantToIso(s, scheduleTz));
     if (!kurasStartParsed.ok) return { ok: false, status: 400, error: kurasStartParsed.error };
-    if (movementParsed.value === 'mixed' && !isFeatureOn('netRate')) {
-      return { ok: false, status: 400, error: `cargoLoadLines[${i}].movementType mixed is not available` };
-    }
     // undefined = the payload does not mention periods (phone stop, timestamp edit): keep what is stored
     let kurasPeriods = row.kurasPeriods === undefined ? undefined : [];
     if (row.kurasPeriods !== undefined && movementParsed.value === 'mixed') {

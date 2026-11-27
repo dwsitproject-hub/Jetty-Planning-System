@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import useFeatureFlags from '../hooks/useFeatureFlags'
 import '../styles/allocation.css'
 
 const REPORTS = [
@@ -23,14 +22,12 @@ const REPORTS = [
     path: '/reporting/stops-delays',
     titleKey: 'stopsReportTitle',
     descKey: 'stopsReportDesc',
-    feature: 'noFlowReport',
   },
 ]
 
 export default function Reporting() {
   const { t } = useTranslation('pages')
-  const features = useFeatureFlags()
-  const reports = REPORTS.filter((r) => !r.feature || features[r.feature])
+  const reports = REPORTS
 
   return (
     <div className="allocation-page">

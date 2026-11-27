@@ -1,11 +1,10 @@
 /**
  * Operator Mode: start and stop kuras on another palka while the open cargo entry keeps pumping
  * (movement type Mixed). Starting sets the entry to Mixed; the periods are saved like the ones of
- * the At-Berth form (see lib/kuras-periods.js). Only while FEATURE_NET_RATE is on.
+ * the At-Berth form (see lib/kuras-periods.js).
  */
 import express from 'express';
 import { pool } from '../db.js';
-import { requireFeature } from '../lib/feature-flags.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { actorUserIdFromReq } from '../lib/master-row-audit.js';
 import { mapKurasPeriodRow } from '../lib/kuras-periods.js';
@@ -43,7 +42,7 @@ function log(req, operationId, summary, entityId) {
 }
 
 /** POST /operations/:operationId/cargo-kuras-periods — start kuras on a palka (palka, startAt optional). */
-router.post('/operations/:operationId/cargo-kuras-periods', requireFeature('netRate'), async (req, res) => {
+router.post('/operations/:operationId/cargo-kuras-periods', async (req, res) => {
   const operationId = await withOperation(req, res);
   if (operationId == null) return undefined;
   const palka = String(req.body?.palka ?? '').trim().toUpperCase();
@@ -110,7 +109,7 @@ router.post('/operations/:operationId/cargo-kuras-periods', requireFeature('netR
 });
 
 /** POST /operations/:operationId/cargo-kuras-periods/:periodId/stop — end now unless endAt is given; qty optional. */
-router.post('/operations/:operationId/cargo-kuras-periods/:periodId/stop', requireFeature('netRate'), async (req, res) => {
+router.post('/operations/:operationId/cargo-kuras-periods/:periodId/stop', async (req, res) => {
   const operationId = await withOperation(req, res);
   if (operationId == null) return undefined;
   const periodId = parseId(req.params.periodId);

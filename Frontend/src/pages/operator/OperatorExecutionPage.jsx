@@ -17,7 +17,6 @@ import OperatorStopReasonSheet from '../../components/operator/OperatorStopReaso
 import { useOperatorNoFlow } from '../../components/operator/useOperatorNoFlow'
 import OperatorKurasSheet from '../../components/operator/OperatorKurasSheet'
 import { useOperatorKuras } from '../../components/operator/useOperatorKuras'
-import useFeatureFlags from '../../hooks/useFeatureFlags'
 
 export default function OperatorExecutionPage() {
   const { operationId: operationIdParam } = useParams()
@@ -38,7 +37,6 @@ export default function OperatorExecutionPage() {
     milestones: exec.milestones,
     stopCargo: exec.stopCargo,
   })
-  const features = useFeatureFlags()
   const cargoSegs = useMemo(
     () => (exec.milestones || []).find((m) => m.key === 'cargo_operations')?.cargoSegments || [],
     [exec.milestones]
@@ -48,7 +46,7 @@ export default function OperatorExecutionPage() {
     segments: cargoSegs,
     tz: exec.tz,
     reload: exec.reload,
-    enabled: features.netRate && editable,
+    enabled: editable,
   })
   // Stop cargo goes through the stop reason sheet unless a stop is already open.
   const stopCargoFlow = noFlow.openStop ? exec.stopCargo : () => noFlow.openSheet('cargo_stop')

@@ -1,7 +1,7 @@
 -- Mixed (Normal & Kuras) movement: while an entry keeps pumping, other palkas are cleaned (kuras)
 -- into the same tank. Each cleaned palka is a period (palka, from, until, optional quantity) that
 -- belongs to one cargo entry. The moved quantity still comes from ATG once; a period quantity only
--- says how much of it was cleaning. Used only while FEATURE_NET_RATE is on.
+-- says how much of it was cleaning.
 -- Rollback: Backend/rollback/159_rollback_cargo_kuras_periods.sql
 
 BEGIN;

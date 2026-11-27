@@ -4,7 +4,6 @@
  */
 import { classifyKurasSegments, pickKurasRule } from './kuras-movement.js';
 import { findKurasStart } from './kuras-start.js';
-import { isFeatureOn } from './feature-flags.js';
 
 const toIso = (v) => (v ? new Date(v).toISOString() : null);
 
@@ -203,9 +202,7 @@ export async function retagKurasForOperation(db, operationId) {
     mtFactorFor: mtFactorResolver(ctx),
   });
   // a Mixed entry records its kuras as palka periods, so no kuras start is detected for it
-  const kurasStarts = isFeatureOn('netRate')
-    ? await updateKurasStarts(db, lines.filter((l) => l.movementType !== 'mixed'), results, rules)
-    : 0;
+  const kurasStarts = await updateKurasStarts(db, lines.filter((l) => l.movementType !== 'mixed'), results, rules);
   const auto = lines.filter((l) => l.source === 'auto');
   if (!auto.length) return { updated: 0, kurasStarts };
   await db.query(

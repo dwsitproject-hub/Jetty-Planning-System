@@ -42,7 +42,6 @@ import { kurasStartDraftFromLine, kurasStartPayload } from '../utils/kurasStart.
 import CargoMixedPeriods from './CargoMixedPeriods'
 import { emptyPeriod, hasPeriodErrors, kurasPeriodsDraftFromLine, kurasPeriodsPayload, validatePeriods } from '../utils/kurasPeriods.js'
 import CargoKurasStartField from './CargoKurasStartField'
-import useFeatureFlags from '../hooks/useFeatureFlags.js'
 import {
   collectCargoLoadLines,
   detectCargoSiQtyMismatch,
@@ -238,7 +237,6 @@ export default function OperationalMilestoneWorkspace({
   operationTbAt = null,
 }) {
   const { t } = useTranslation('pages')
-  const features = useFeatureFlags()
   const tz = scheduleIana?.trim() || getScheduleEntryTimeZone()
   const isoOrDatetimeToLocal = useCallback((value) => utcIsoToNaiveLocal(value, tz), [tz])
   const getNowForDateTimeLocal = useCallback(() => nowToNaiveLocalInScheduleZone(tz), [tz])
@@ -1199,10 +1197,10 @@ export default function OperationalMilestoneWorkspace({
           if (showCommodityPicker && !lineCommodityId) {
             return { error: t('cargoOpsLineCommodityRequired', { n: i + 1 }) }
           }
-          const kurasStartPick = features.netRate ? kurasStartPayload(li, (v) => normalizeForApi(v, tz)) : {}
+          const kurasStartPick = kurasStartPayload(li, (v) => normalizeForApi(v, tz))
           if (kurasStartPick.error) return { error: t(kurasStartPick.error, { n: i + 1 }) }
           let kurasPeriods
-          if (features.netRate && li.movementType === 'mixed') {
+          if (li.movementType === 'mixed') {
             const rows = Array.isArray(li.kurasPeriods) ? li.kurasPeriods : []
             if (rows.length === 0) return { error: t('cargoOpsMixedNeedsPalka', { n: i + 1 }) }
             const entryQty = Number(li.qty) > 0 ? Number(li.qty) : Number(li.manualQty) > 0 ? Number(li.manualQty) : null
@@ -1226,7 +1224,7 @@ export default function OperationalMilestoneWorkspace({
             overrideNote,
             movementType: li.movementType || 'auto',
             // Normal says there was no kuras at all, so no kuras start is looked for
-            kurasStart: features.netRate && li.movementType === 'normal' ? 'none' : kurasStartPick.value,
+            kurasStart: li.movementType === 'normal' ? 'none' : kurasStartPick.value,
             kurasPeriods,
           })
         }
@@ -2092,7 +2090,7 @@ export default function OperationalMilestoneWorkspace({
                           <CargoMovementTypeField
                             id={`op-cargo-movement-${lr.key}`}
                             draft={row}
-                            allowMixed={features.netRate}
+                            allowMixed
                             onChange={(movementType) =>
                               updateCargoLineDraft(
                                 lr.key,
@@ -2102,7 +2100,7 @@ export default function OperationalMilestoneWorkspace({
                               )
                             }
                           />
-                          {features.netRate && row.movementType === 'mixed' ? (
+                          {row.movementType === 'mixed' ? (
                             <CargoMixedPeriods
                               idPrefix={`op-cargo-mixed-${lr.key}`}
                               draft={row}
@@ -2110,14 +2108,12 @@ export default function OperationalMilestoneWorkspace({
                               formatEntryTime={(v) => (v ? v.replace('T', ' ').slice(5, 16) : '')}
                             />
                           ) : null}
-                          {features.netRate ? (
-                            <CargoKurasStartField
-                              id={`op-cargo-kuras-start-${lr.key}`}
-                              draft={row}
-                              movementType={row.movementType || 'auto'}
-                              onChange={(patch) => updateCargoLineDraft(lr.key, patch)}
-                            />
-                          ) : null}
+                          <CargoKurasStartField
+                            id={`op-cargo-kuras-start-${lr.key}`}
+                            draft={row}
+                            movementType={row.movementType || 'auto'}
+                            onChange={(patch) => updateCargoLineDraft(lr.key, patch)}
+                          />
 
                           {useCargoSessionMode && row.start ? (
                             <CargoEntryHourlyPanel

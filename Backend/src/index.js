@@ -65,7 +65,6 @@ import { csrfProtection } from './middleware/csrf.js';
 import { startNotificationEmailWorker } from './lib/notification-email-worker.js';
 import { startIntegrationWebhookWorker } from './lib/integration-webhook-worker.js';
 import { startIntegrationLogRetention } from './lib/integration-log-retention.js';
-import { featureFlags, requireFeature } from './lib/feature-flags.js';
 import reportNoFlowRoutes from './routes/report-no-flow.js';
 
 const app = express();
@@ -125,10 +124,6 @@ apiV1.use('/auth', authRoutes);
 /** Partner machine-to-machine API (x-api-key auth); mounted before CSRF since partners have no cookie session. */
 apiV1.use('/integrations', integrationsRoutes);
 apiV1.use(csrfProtection);
-/** Dark-launch switches (FEATURE_* env vars); the SPA hides each feature while it is off. */
-apiV1.get('/features', requireAuth, (_req, res) => {
-  res.json(featureFlags());
-});
 apiV1.use('/users', userRoutes);
 apiV1.use('/admin', adminSsoLinkingRoutes);
 apiV1.use('/integration-admin', integrationAdminRoutes);
@@ -151,7 +146,7 @@ apiV1.use('/si-lookups', requireAuth, siLookupsRoutes);
 apiV1.use('/operations', requireAuth, requirePortScope, operationsRoutes);
 apiV1.use('/allocation', requireAuth, requirePortScope, allocationRoutes);
 apiV1.use('/dashboard-v2', requireAuth, requirePortScope, dashboardV2WeeklyRoutes);
-apiV1.use('/no-flow-report', requireAuth, requirePortScope, requireFeature('noFlowReport'), reportNoFlowRoutes);
+apiV1.use('/no-flow-report', requireAuth, requirePortScope, reportNoFlowRoutes);
 apiV1.use('/shipment-plans', requireAuth, requirePortScope, shipmentPlansRoutes);
 apiV1.use('/operation-documents', requireAuth, requirePortScope, operationDocumentsRoutes);
 apiV1.use('/stored-files', requireAuth, requirePortScope, storedFilesRoutes);

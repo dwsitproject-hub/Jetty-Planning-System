@@ -1,6 +1,6 @@
 /**
  * Recorded stops of many voyages in the compact shape the Jetty Schedule Gantt draws on actual
- * bars (red marks). Sent only while FEATURE_GANTT_STOPS is on.
+ * bars (translucent marks).
  */
 
 import { loadUnexplainedStopsByOperation } from './no-flow-unexplained.js';
