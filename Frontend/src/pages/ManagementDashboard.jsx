@@ -15,6 +15,7 @@ import {
   fetchManagementCargoRates,
 } from '../api/operations'
 import WidgetDetailModal from '../components/WidgetDetailModal'
+import DashboardLoading from '../components/dashboard/DashboardLoading.jsx'
 import FlowPill from '../components/FlowPill'
 import ProductDetailModal from '../components/dashboard/ProductDetailModal'
 import ThroughputCargoEntries from '../components/dashboard/ThroughputCargoEntries'
@@ -191,6 +192,7 @@ export default function ManagementDashboard() {
   const timelinesRef = useRef(timelinesByOpId)
   timelinesRef.current = timelinesByOpId
   const [loading, setLoading] = useState(true)
+  const [loadStep, setLoadStep] = useState({ stage: 'ops', done: 0, total: 0 })
   const [error, setError] = useState(null)
   const [period, setPeriod] = useState('d30')
   const [monthPick, setMonthPick] = useState('') // 'YYYY-MM' — selecting one switches period to 'monthPick'
@@ -209,6 +211,7 @@ export default function ManagementDashboard() {
       setLoading(true)
       setError(null)
       setCargoRatesByOpId({})
+      setLoadStep({ stage: 'ops', done: 0, total: 0 })
       try {
         const list = await fetchOperations()
         if (cancelled) return
@@ -218,25 +221,34 @@ export default function ManagementDashboard() {
         if (sailedForRates.length) {
           const mergedRates = {}
           const CHUNK = 50
+          const chunks = Math.ceil(sailedForRates.length / CHUNK)
+          setLoadStep({ stage: 'rates', done: 0, total: chunks })
           for (let i = 0; i < sailedForRates.length; i += CHUNK) {
             const chunk = sailedForRates.slice(i, i + CHUNK)
             const rateRes = await fetchManagementCargoRates(chunk).catch(() => ({ rates: {} }))
             if (cancelled) return
             Object.assign(mergedRates, rateRes?.rates || {})
+            setLoadStep({ stage: 'rates', done: i / CHUNK + 1, total: chunks })
           }
           if (!cancelled) setCargoRatesByOpId(mergedRates)
         }
         // fetch phase detail for sailed + live ops (bounded)
         const ids = arr.filter((o) => o.status !== 'PENDING').map((o) => o.id).slice(0, 60)
+        let actsDone = 0
+        setLoadStep({ stage: 'acts', done: 0, total: ids.length })
         const pairs = await Promise.all(
           ids.map(async (id) => {
             const oa = await fetchOperationalActivities(id).catch(() => ({ entries: [] }))
+            if (!cancelled) setLoadStep({ stage: 'acts', done: ++actsDone, total: ids.length })
             return [id, { acts: (oa && oa.entries) || [] }]
           })
         )
         const sailedIds = arr.filter((o) => o.status === 'SAILED').map((o) => o.id)
+        let timelinesDone = 0
+        setLoadStep({ stage: 'timelines', done: 0, total: sailedIds.length })
         const timelinePairs = await mapPool(sailedIds, TIMELINE_FETCH_CONCURRENCY, async (id) => {
           const res = await fetchActivityTimeline(id).catch(() => ({ events: [] }))
+          if (!cancelled) setLoadStep({ stage: 'timelines', done: ++timelinesDone, total: sailedIds.length })
           return [id, (res && res.events) || []]
         })
         if (!cancelled) {
@@ -878,7 +890,7 @@ export default function ManagementDashboard() {
       </div>
 
       {error ? <p className="allocation-page__intro" role="alert" style={{ color: 'var(--color-danger,#c00)' }}>{error}</p> : null}
-      {loading ? <p className="text-steel">Loading operations…</p> : (
+      {loading ? <DashboardLoading {...loadStep} /> : (
         <>
           <div className="mgmt-kpis">
             {kpiTiles.map((t) => (

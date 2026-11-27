@@ -4,14 +4,32 @@
  */
 import { voyageMovedQtyLines } from './managementDashboardProduct.js'
 
+/**
+ * Speed scale: green = fast, yellow = middle, orange to red = slow, grey = no flow.
+ * `min` is the exclusive lower bound, as in the backend (exactly 100 MT/h is '75_100').
+ */
 export const RATE_BAND_DEFS = [
-  { key: 'gt100', name: 'Very fast', range: '>100 MT/h', color: '#0C447C' },
-  { key: '75_100', name: 'Fast', range: '75–100 MT/h', color: '#185FA5' },
-  { key: '50_75', name: 'Moderate', range: '50–75 MT/h', color: '#378ADD' },
-  { key: '25_50', name: 'Slow', range: '25–50 MT/h', color: '#85B7EB' },
-  { key: '0_25', name: 'Very slow', range: '0–25 MT/h', color: '#B5D4F4' },
+  { key: 'gt100', name: 'Very fast', range: '>100 MT/h', color: '#1E7A46', min: 100 },
+  { key: '75_100', name: 'Fast', range: '75–100 MT/h', color: '#7DB84A', min: 75 },
+  { key: '50_75', name: 'Moderate', range: '50–75 MT/h', color: '#F2C230', min: 50 },
+  { key: '25_50', name: 'Slow', range: '25–50 MT/h', color: '#F08C3A', min: 25 },
+  { key: '0_25', name: 'Very slow', range: '0–25 MT/h', color: '#D64B3C', min: 0 },
   { key: 'zero', name: 'No flow', range: '0 MT/h', color: '#B4B2A9' },
 ]
+
+/** Band key of one hourly rate: null when the hour is excluded, 'zero' for no flow. */
+export function rateBandKey(rate) {
+  if (rate == null) return null
+  if (!(rate > 0)) return 'zero'
+  return RATE_BAND_DEFS.find((b) => b.min != null && rate > b.min)?.key ?? '0_25'
+}
+
+const BAND_COLOR = Object.fromEntries(RATE_BAND_DEFS.map((b) => [b.key, b.color]))
+
+/** Colour of a band key, so every view (pie, line, bar) paints a rate the same way. */
+export function bandColor(key) {
+  return BAND_COLOR[key] ?? BAND_COLOR.zero
+}
 
 /** Hourly rate (MT/h) at or above this counts as "fast". */
 export const FAST_RATE_MTH = 75

@@ -1,8 +1,9 @@
 /**
- * Hourly cargo rate line (MT/h per clock hour). Grey columns = no-flow hours; dashed line = fast threshold.
+ * Hourly cargo rate line (MT/h per clock hour), coloured by the same speed bands as the pie and bar.
+ * Grey columns = no-flow hours; dashed line = fast threshold.
  * Hover any hour for its time and rate (native SVG tooltip).
  */
-import { FAST_RATE_MTH } from '../../utils/hourlyRateBands.js'
+import { FAST_RATE_MTH, bandColor, rateBandKey } from '../../utils/hourlyRateBands.js'
 import { MGMT_DASHBOARD_TIMEZONE } from '../../utils/managementDashboardMetricEvidence.js'
 
 const HOUR_MS = 3600000
@@ -17,6 +18,18 @@ function fmtHour(iso) {
   })
 }
 
+/** Consecutive hours in one band form a run; a run also starts from the previous hour so the line stays joined. */
+function colorRuns(points) {
+  const runs = []
+  points.forEach((p, i) => {
+    const key = rateBandKey(p.r ?? 0)
+    const last = runs.at(-1)
+    if (last && last.key === key) last.idx.push(i)
+    else runs.push({ key, idx: i ? [i - 1, i] : [i] })
+  })
+  return runs.filter((r) => r.idx.length > 1)
+}
+
 export default function HourlyRateSparkline({ series, scaleMax, width = 160, height = 36, detailed = false }) {
   const points = Array.isArray(series) ? series : []
   if (!points.length) return null
@@ -27,8 +40,9 @@ export default function HourlyRateSparkline({ series, scaleMax, width = 160, hei
   const step = iw / Math.max(n - 1, 1)
   const x = (i) => pad.l + (n <= 1 ? iw / 2 : i * step)
   const y = (r) => pad.t + ih - (Math.min(Math.max(r, 0), scaleMax) / scaleMax) * ih
-  const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.r ?? 0).toFixed(1)}`).join('')
-  const area = `${line}L${x(n - 1).toFixed(1)},${pad.t + ih}L${x(0).toFixed(1)},${pad.t + ih}Z`
+  const base = pad.t + ih
+  const runs = colorRuns(points)
+  const pathOf = (idx) => idx.map((i, k) => `${k ? 'L' : 'M'}${x(i).toFixed(1)},${y(points[i].r ?? 0).toFixed(1)}`).join('')
   const ticks = []
   if (detailed) for (let v = 0; v <= scaleMax; v += scaleMax > 200 ? 50 : 25) ticks.push(v)
 
@@ -58,8 +72,17 @@ export default function HourlyRateSparkline({ series, scaleMax, width = 160, hei
           {FAST_RATE_MTH} MT/h (fast)
         </text>
       ) : null}
-      <path d={area} className="mgmt-rate-spark__area" />
-      <path d={line} className="mgmt-rate-spark__line" />
+      {runs.map((run, k) => {
+        const line = pathOf(run.idx)
+        const color = bandColor(run.key)
+        const area = `${line}L${x(run.idx.at(-1)).toFixed(1)},${base}L${x(run.idx[0]).toFixed(1)},${base}Z`
+        return (
+          <g key={k}>
+            <path d={area} fill={color} className="mgmt-rate-spark__area" />
+            <path d={line} stroke={color} className="mgmt-rate-spark__line" />
+          </g>
+        )
+      })}
       {detailed ? (
         <>
           <text x={pad.l} y={height - 4} className="mgmt-rate-spark__tick">{fmtHour(points[0].t)}</text>

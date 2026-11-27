@@ -1,5 +1,6 @@
 /**
- * By Vessel drill-down: the figures moved out of the main table, two charts, then the voyage rows.
+ * By Vessel drill-down: the figures moved out of the main table, two charts, then the same
+ * Incoming / Outgoing voyage tables as By Voyage.
  */
 import { fmtMgmtCastOffDate } from '../../utils/managementDashboardMetricEvidence.js'
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
@@ -24,6 +25,8 @@ function statsOf(v, breakdown) {
 
 export default function VesselDetail({ vessel, voyageBlockProps }) {
   const breakdown = !!voyageBlockProps?.breakdown
+  const incoming = vessel.voyages.filter((r) => r.purpose !== 'Loading')
+  const outgoing = vessel.voyages.filter((r) => r.purpose === 'Loading')
   return (
     <div className="mgmt-vdetail">
       <dl className="mgmt-vdetail__stats">
@@ -39,7 +42,8 @@ export default function VesselDetail({ vessel, voyageBlockProps }) {
         <RateBarsChart voyages={vessel.voyages} average={vessel.rate} />
       </div>
       <h4 className="mgmt-vchart__title">Voyage details</h4>
-      <VoyageBlock rows={vessel.voyages} {...voyageBlockProps} />
+      {incoming.length ? <VoyageBlock title="Incoming" chipClass="mgmt-chip--disch" rows={incoming} {...voyageBlockProps} /> : null}
+      {outgoing.length ? <VoyageBlock title="Outgoing" chipClass="mgmt-chip--load" rows={outgoing} {...voyageBlockProps} /> : null}
     </div>
   )
 }

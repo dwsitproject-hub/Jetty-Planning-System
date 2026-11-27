@@ -3,7 +3,7 @@
  */
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import { voyageDisplayActiveRate, voyageFlowRate } from '../../utils/managementDashboardFlow.js'
-import { voyageMovedQtyLines, voyageMovedQtySortValue } from '../../utils/managementDashboardProduct.js'
+import { voyageMovedQtyLines } from '../../utils/managementDashboardProduct.js'
 import { sortModalRows } from '../../utils/widgetDetailSort.js'
 import {
   castOffSortTimestamp,
@@ -55,26 +55,20 @@ function pairLines(row) {
   return voyageMovedQtyLines(row)
 }
 
+/** Commodity with the quantity actually moved; a voyage with several commodities also gets a total. */
 function CommodityCell({ row }) {
   const lines = pairLines(row)
-  if (lines.length <= 1) return lines[0]?.label || '—'
+  if (!lines.length) return '—'
+  const total = lines.reduce((sum, l) => sum + (l.qty ?? 0), 0)
   return (
     <span className="mgmt-voyage-pair mgmt-voyage-pair--commodity">
       {lines.map((l, i) => (
-        <span key={`${l.label}-${i}`}>{l.label}</span>
+        <span key={`${l.label}-${i}`}>
+          {l.label}
+          {l.qty == null ? null : <> · <b>{fmtNum(l.qty, 0)}</b> MT</>}
+        </span>
       ))}
-    </span>
-  )
-}
-
-function MovedQtyCell({ row }) {
-  const lines = pairLines(row)
-  const items = lines.length ? lines : [{ label: '—', qty: null }]
-  return (
-    <span className="mgmt-voyage-pair mgmt-voyage-pair--moved">
-      {items.map((l, i) => (
-        <span key={`${l.label}-${i}`}>{l.qty == null ? '—' : fmtNum(l.qty, 0)}</span>
-      ))}
+      {lines.length > 1 && total > 0 ? <span className="text-steel">Total <b>{fmtNum(total, 0)}</b> MT</span> : null}
     </span>
   )
 }
@@ -87,12 +81,11 @@ const VOYAGE_COLUMNS = [
   { key: 'vessel', label: 'Vessel', sortValue: (r) => r.vessel || '' },
   { key: 'jetty', label: 'Jetty', sortValue: (r) => r.jetty || '' },
   { key: 'commodity', label: 'Commodity', sortValue: (r) => r.commodity || '' },
-  { key: 'moved', label: 'Moved (MT)', align: 'right', sortValue: voyageMovedQtySortValue },
   { key: 'pumped', label: 'Pumped (MT)', align: 'right', sortValue: (r) => r.rateBreakdown?.normal?.qty ?? null },
   { key: 'wait', label: 'Wait', align: 'right', sortValue: (r) => r.wait },
   { key: 'pre', label: 'Berth → start cargo', align: 'right', sortValue: (r) => r.pre },
-  { key: 'flow', label: 'Achieved rate', align: 'right', sortValue: (r) => voyageFlowRate(r) },
-  { key: 'activeFlow', label: 'Active rate', align: 'right', sortValue: activeRateOf },
+  { key: 'flow', label: 'Pump achieved rate', align: 'right', sortValue: (r) => voyageFlowRate(r) },
+  { key: 'activeFlow', label: 'Pump active rate', align: 'right', sortValue: activeRateOf },
   { key: 'kurasQty', label: 'Cleaned / Kuras (MT)', align: 'right', sortValue: (r) => r.rateBreakdown?.kuras?.qty ?? null },
   { key: 'kurasRate', label: 'Cleaning / Kuras rate', align: 'right', sortValue: (r) => positive(r.rateBreakdown?.kuras?.rateMtH) },
   { key: 'downtime', label: 'Total downtime (h)', align: 'right', sortValue: (r) => r.rateBreakdown?.downtime?.hours ?? null },
@@ -104,13 +97,15 @@ const VOYAGE_COLUMNS = [
     align: 'right',
     sortValue: (r) => castOffSortTimestamp(r.castOff),
   },
-  { key: 'status', label: 'Status', sortValue: statusLabel },
 ]
 
 const COLUMN_ORDER = {
-  standard: ['vessel', 'jetty', 'commodity', 'moved', 'wait', 'pre', 'flow', 'activeFlow', 'hoursByRate', 'cargoDoneToSail', 'dateCompleted', 'status'],
-  /** Pumped / cleaned / downtime view (net-rate switch on): the rate columns sit together. */
-  breakdown: ['vessel', 'jetty', 'commodity', 'wait', 'pre', 'pumped', 'flow', 'activeFlow', 'kurasQty', 'kurasRate', 'downtime', 'hoursByRate', 'cargoDoneToSail', 'dateCompleted', 'status'],
+  standard: ['vessel', 'jetty', 'commodity', 'flow', 'activeFlow', 'hoursByRate', 'wait', 'pre', 'cargoDoneToSail', 'dateCompleted'],
+  /** Pumped / cleaned / downtime view (net-rate switch on): the pump figures come right after the commodity. */
+  breakdown: [
+    'vessel', 'jetty', 'commodity', 'pumped', 'kurasQty', 'flow', 'activeFlow', 'kurasRate',
+    'hoursByRate', 'wait', 'pre', 'cargoDoneToSail', 'downtime', 'dateCompleted',
+  ],
 }
 
 function columnsFor(breakdown) {
@@ -197,7 +192,6 @@ export function VoyageBlock({
   onRateViewChange,
   profilesLoading,
   breakdown,
-  showPurpose = false,
 }) {
   const columns = useMemo(() => columnsFor(breakdown), [breakdown])
   const colSpan = columns.length
@@ -280,16 +274,10 @@ export function VoyageBlock({
                     <b>{r.vessel}</b>
                     <br />
                     <span className="text-steel" style={{ fontSize: 11 }}>{r.code}</span>
-                    {showPurpose ? (
-                      <span className={`mgmt-chip ${r.purpose === 'Loading' ? 'mgmt-chip--load' : 'mgmt-chip--disch'}`} style={{ marginLeft: 6 }}>
-                        {r.purpose === 'Loading' ? 'LOAD' : 'UNLOAD'}
-                      </span>
-                    ) : null}
                   </td>
                 ),
                 jetty: <td>{r.jetty || '—'}</td>,
                 commodity: <td><CommodityCell row={r} /></td>,
-                moved: <td className="mgmt-r mgmt-moved"><MovedQtyCell row={r} /></td>,
                 pumped: <td {...metricProps(rk, 'pumped')}>{num(bd?.normal?.qty, 0, '')}</td>,
                 wait: <td {...metricProps(rk, 'wait')}>{fmtMgmtDurationDays(r.wait)}</td>,
                 pre: <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>,
@@ -315,7 +303,6 @@ export function VoyageBlock({
                 ),
                 cargoDoneToSail: <td {...metricProps(rk, 'cargoDoneToSail')}>{fmtMgmtDurationHours(r.cargoDoneToSailH)}</td>,
                 dateCompleted: <td className={voyageTdClass('dateCompleted')}>{fmtMgmtCastOffDate(r.castOff)}</td>,
-                status: <td>{statusChip(r)}</td>,
               }
               return (
                 <Fragment key={rk}>
@@ -411,7 +398,7 @@ export default function VoyageDrilldownTable({
         {filter}
         <VesselGroupBlock
           rows={[...(showIncoming ? incoming : []), ...(showOutgoing ? outgoing : [])]}
-          voyageBlockProps={{ ...blockProps, showPurpose: true }}
+          voyageBlockProps={blockProps}
         />
       </div>
     )

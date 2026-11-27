@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  bandColor,
   bandPieGradient,
   commodityFilterOptions,
   fastShare,
@@ -8,6 +9,7 @@ import {
   lineScaleMax,
   noFlowShare,
   profileTotalHours,
+  rateBandKey,
 } from './hourlyRateBands.js'
 
 const profile = { bands: { gt100: 4, '75_100': 2, '50_75': 1, '25_50': 1, '0_25': 0, zero: 2 } }
@@ -32,6 +34,27 @@ describe('hourly rate band shares', () => {
 
   it('builds a pie gradient that ends at 100%', () => {
     assert.match(bandPieGradient(profile), /100\.00%\)$/)
+  })
+})
+
+describe('rateBandKey', () => {
+  it('puts a rate in the band the backend would, upper bound inclusive', () => {
+    assert.equal(rateBandKey(100.1), 'gt100')
+    assert.equal(rateBandKey(100), '75_100')
+    assert.equal(rateBandKey(75), '50_75')
+    assert.equal(rateBandKey(50.5), '50_75')
+    assert.equal(rateBandKey(25.1), '25_50')
+    assert.equal(rateBandKey(10), '0_25')
+  })
+
+  it('treats zero as no flow and a missing rate as excluded', () => {
+    assert.equal(rateBandKey(0), 'zero')
+    assert.equal(rateBandKey(null), null)
+  })
+
+  it('gives every band its own colour, and unknown keys the no-flow grey', () => {
+    assert.equal(new Set(['gt100', '75_100', '50_75', '25_50', '0_25', 'zero'].map(bandColor)).size, 6)
+    assert.equal(bandColor('nope'), bandColor('zero'))
   })
 })
 

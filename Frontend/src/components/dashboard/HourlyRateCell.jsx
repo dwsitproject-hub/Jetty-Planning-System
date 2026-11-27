@@ -52,9 +52,11 @@ export function HourlyRateCell({ profile, view, scaleMax, loading, manual }) {
   const total = profileTotalHours(profile)
   if (!(total > 0)) {
     return (
-      <span className="text-steel mgmt-rate-empty">
-        {loading ? 'Loading…' : `No hourly data${manual ? ' (manual)' : ''}`}
-      </span>
+      loading ? (
+        <span className="mgmt-skel mgmt-rate-skel" role="status" aria-label="Loading hourly data" />
+      ) : (
+        <span className="text-steel mgmt-rate-empty">{`No hourly data${manual ? ' (manual)' : ''}`}</span>
+      )
     )
   }
   if (view === 'line') {
@@ -91,15 +93,6 @@ export function HourlyRateCell({ profile, view, scaleMax, loading, manual }) {
 }
 
 function HeaderLegend({ view }) {
-  if (view === 'line') {
-    return (
-      <div className="mgmt-rate-legend mgmt-rate-legend--line">
-        <span><i className="mgmt-rate-legend__line" />Rate per hour (MT/h)</span>
-        <span><i className="mgmt-rate-legend__dash" />75 MT/h = fast</span>
-        <span><Swatch color="#B4B2A9" />Hours with no flow</span>
-      </div>
-    )
-  }
   return (
     <div className="mgmt-rate-legend">
       {RATE_BAND_DEFS.map((b) => (
@@ -108,6 +101,7 @@ function HeaderLegend({ view }) {
           <b>{b.name}</b> {b.key === 'zero' ? '0' : b.range}
         </span>
       ))}
+      {view === 'line' ? <span><i className="mgmt-rate-legend__dash" />75 MT/h = fast</span> : null}
     </div>
   )
 }
