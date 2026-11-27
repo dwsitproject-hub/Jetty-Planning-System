@@ -39,6 +39,8 @@ import CargoMovementTypeField from './CargoMovementTypeField'
 import NoFlowLogPanel from './noflow/NoFlowLogPanel.jsx'
 import { movementDraftFromLine } from '../utils/kurasMovementReason.js'
 import { kurasStartDraftFromLine, kurasStartPayload } from '../utils/kurasStart.js'
+import CargoMixedPeriods from './CargoMixedPeriods'
+import { emptyPeriod, hasPeriodErrors, kurasPeriodsDraftFromLine, kurasPeriodsPayload, validatePeriods } from '../utils/kurasPeriods.js'
 import CargoKurasStartField from './CargoKurasStartField'
 import useFeatureFlags from '../hooks/useFeatureFlags.js'
 import {
@@ -185,6 +187,7 @@ function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = [], commodi
     persistedCommodityId: null,
     movementType: 'auto',
     persistedMovement: null,
+    kurasPeriods: [],
   }
 }
 
@@ -363,6 +366,7 @@ export default function OperationalMilestoneWorkspace({
               ...commodityDraftFromPersistedLoadLine(l),
               ...movementDraftFromLine(l),
               ...kurasStartDraftFromLine(l, isoOrDatetimeToLocal),
+              ...kurasPeriodsDraftFromLine(l, isoOrDatetimeToLocal),
             }
           })
         )
@@ -533,6 +537,7 @@ export default function OperationalMilestoneWorkspace({
               ...commodityDraftFromPersistedLoadLine(l),
               ...movementDraftFromLine(l),
               ...kurasStartDraftFromLine(l, isoOrDatetimeToLocal),
+              ...kurasPeriodsDraftFromLine(l, isoOrDatetimeToLocal),
             }))
           )
         } else if (commodityType === 'Liquid' && useApi) {
@@ -1196,6 +1201,15 @@ export default function OperationalMilestoneWorkspace({
           }
           const kurasStartPick = features.netRate ? kurasStartPayload(li, (v) => normalizeForApi(v, tz)) : {}
           if (kurasStartPick.error) return { error: t(kurasStartPick.error, { n: i + 1 }) }
+          let kurasPeriods
+          if (features.netRate && li.movementType === 'mixed') {
+            const rows = Array.isArray(li.kurasPeriods) ? li.kurasPeriods : []
+            if (rows.length === 0) return { error: t('cargoOpsMixedNeedsPalka', { n: i + 1 }) }
+            const entryQty = Number(li.qty) > 0 ? Number(li.qty) : Number(li.manualQty) > 0 ? Number(li.manualQty) : null
+            const problems = validatePeriods(rows, { entryStart: li.start || '', entryEnd: li.end || '', entryQty })
+            if (hasPeriodErrors(problems)) return { error: t('cargoOpsMixedInvalid', { n: i + 1 }) }
+            kurasPeriods = kurasPeriodsPayload(rows, (v) => normalizeForApi(v, tz))
+          }
           built.push({
             qty: mq,
             manualQty: isMixed ? manualQty : null,
@@ -1211,7 +1225,9 @@ export default function OperationalMilestoneWorkspace({
             overrideOn,
             overrideNote,
             movementType: li.movementType || 'auto',
-            kurasStart: kurasStartPick.value,
+            // Normal says there was no kuras at all, so no kuras start is looked for
+            kurasStart: features.netRate && li.movementType === 'normal' ? 'none' : kurasStartPick.value,
+            kurasPeriods,
           })
         }
         built.sort((a, b) => a._sort - b._sort || a._i - b._i)
@@ -1229,9 +1245,10 @@ export default function OperationalMilestoneWorkspace({
           }
         }
         const cargoLoadLines = built.map(
-          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId, overrideOn, overrideNote, movementType, kurasStart }) => {
+          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId, overrideOn, overrideNote, movementType, kurasStart, kurasPeriods }) => {
           const row = { startAt: startIso, atgQtyMode: atgQtyMode || 'auto', movementType }
           if (kurasStart !== undefined) row.kurasStart = kurasStart
+          if (kurasPeriods !== undefined) row.kurasPeriods = kurasPeriods
           if (endIso) row.endAt = endIso
           else row.endAt = null
           if (qty != null) row.qty = qty
@@ -2075,12 +2092,29 @@ export default function OperationalMilestoneWorkspace({
                           <CargoMovementTypeField
                             id={`op-cargo-movement-${lr.key}`}
                             draft={row}
-                            onChange={(movementType) => updateCargoLineDraft(lr.key, { movementType })}
+                            allowMixed={features.netRate}
+                            onChange={(movementType) =>
+                              updateCargoLineDraft(
+                                lr.key,
+                                movementType === 'mixed' && !(row.kurasPeriods || []).length
+                                  ? { movementType, kurasPeriods: [emptyPeriod(row.start || '')] }
+                                  : { movementType },
+                              )
+                            }
                           />
+                          {features.netRate && row.movementType === 'mixed' ? (
+                            <CargoMixedPeriods
+                              idPrefix={`op-cargo-mixed-${lr.key}`}
+                              draft={row}
+                              onChange={(patch) => updateCargoLineDraft(lr.key, patch)}
+                              formatEntryTime={(v) => (v ? v.replace('T', ' ').slice(5, 16) : '')}
+                            />
+                          ) : null}
                           {features.netRate ? (
                             <CargoKurasStartField
                               id={`op-cargo-kuras-start-${lr.key}`}
                               draft={row}
+                              movementType={row.movementType || 'auto'}
                               onChange={(patch) => updateCargoLineDraft(lr.key, patch)}
                             />
                           ) : null}

@@ -3,7 +3,7 @@ import { formatDateTimeDisplay, getAppLocaleTag } from '../utils/formatDateTimeD
 import { describeEntryMovement, movementTypeLabel } from '../utils/kurasMovementReason.js'
 
 /** Movement type (Auto / Normal / Kuras) for one cargo entry, with its badge and the reason. */
-export default function CargoMovementTypeField({ id, draft, disabled, onChange }) {
+export default function CargoMovementTypeField({ id, draft, disabled, onChange, allowMixed = false }) {
   const { t } = useTranslation('pages')
   const { badge, text } = describeEntryMovement(t, draft, {
     locale: getAppLocaleTag(),
@@ -31,6 +31,7 @@ export default function CargoMovementTypeField({ id, draft, disabled, onChange }
         <option value="auto">{t('cargoOpsMovementAuto')}</option>
         <option value="normal">{t('cargoOpsMovementNormal')}</option>
         <option value="kuras">{t('cargoOpsMovementKuras')}</option>
+        {allowMixed ? <option value="mixed">{t('cargoOpsMovementMixed')}</option> : null}
       </select>
       <p className="cargo-movement-type__reason">{text}</p>
     </div>

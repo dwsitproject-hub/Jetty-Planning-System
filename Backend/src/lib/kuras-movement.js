@@ -5,7 +5,7 @@
  * Manual tags are never changed here; the reason payload is rendered per locale on the client.
  */
 
-export const MOVEMENT_TYPES = ['normal', 'kuras'];
+export const MOVEMENT_TYPES = ['normal', 'kuras', 'mixed'];
 
 const round = (n, dp) => {
   const f = 10 ** dp;
@@ -20,7 +20,7 @@ export function parseMovementTypeInput(raw, lineIndex) {
   if (raw === undefined || raw === null || raw === '') return { ok: true, value: undefined };
   const v = String(raw).trim().toLowerCase();
   if (v === 'auto' || MOVEMENT_TYPES.includes(v)) return { ok: true, value: v };
-  return { ok: false, error: `cargoLoadLines[${lineIndex}].movementType must be auto, normal or kuras` };
+  return { ok: false, error: `cargoLoadLines[${lineIndex}].movementType must be auto, normal, kuras or mixed` };
 }
 
 /** Commodity-specific rule first, then the port default. */

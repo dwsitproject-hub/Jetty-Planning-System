@@ -102,3 +102,19 @@ test('every segment has a key for its detail modal', () => {
     assert.ok(wf.segs.every((s) => typeof s.key === 'string' && s.key.length > 0))
   }
 })
+
+test('a voyage with Mixed periods lists its palkas and says when nothing is split', () => {
+  const b = {
+    normal: { qty: 900, hours: 6, rateMtH: 150 }, kuras: { qty: 100, hours: 2, rateMtH: 50 },
+    stopHours: { before: 0, during: 0, after: 0 }, downtime: { hours: 0, gapHours: 0 },
+    mixed: { hours: 2, qtyKnown: false, periods: [{ palka: '1B', startedAt: 'a', endedAt: 'b', hours: 2, qty: null }] },
+  }
+  const row = { rateBreakdown: b, voyageLoggedHours: 10 }
+  return import('./managementDashboardRateEvidence.js').then(({ rateEvidenceSections }) => {
+    const sec = rateEvidenceSections(row, (v) => `@${v}`).find((s) => s.key === 'mixed')
+    assert.ok(sec)
+    assert.equal(sec.rows[1].label, 'Palka 1B')
+    assert.match(sec.rows[1].value, /no quantity/)
+    assert.ok(sec.rows.some((r) => r.label === 'Note'))
+  })
+})

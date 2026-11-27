@@ -177,7 +177,7 @@ export async function retagKurasForOperation(db, operationId) {
   const ctx = await loadVoyageContext(db, operationId);
   if (!ctx) return { updated: 0 };
   const linesR = await db.query(
-    `SELECT l.id, l.qty, l.started_at, l.ended_at, l.commodity_id, l.movement_type_source, l.kuras_start_source
+    `SELECT l.id, l.qty, l.started_at, l.ended_at, l.commodity_id, l.movement_type, l.movement_type_source, l.kuras_start_source
      FROM operation_cargo_load_lines l
      JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id AND oa.deleted_at IS NULL
      WHERE oa.operation_id = $1 AND oa.milestone_key = 'cargo_operations'`,
@@ -191,6 +191,7 @@ export async function retagKurasForOperation(db, operationId) {
     endedAt: toIso(row.ended_at),
     commodityId: row.commodity_id != null ? Number(row.commodity_id) : null,
     source: row.movement_type_source,
+    movementType: row.movement_type,
     kurasStartSource: row.kuras_start_source,
   }));
   const rules = await loadKurasRules(db, ctx.portId);
@@ -201,7 +202,10 @@ export async function retagKurasForOperation(db, operationId) {
     rules,
     mtFactorFor: mtFactorResolver(ctx),
   });
-  const kurasStarts = isFeatureOn('netRate') ? await updateKurasStarts(db, lines, results, rules) : 0;
+  // a Mixed entry records its kuras as palka periods, so no kuras start is detected for it
+  const kurasStarts = isFeatureOn('netRate')
+    ? await updateKurasStarts(db, lines.filter((l) => l.movementType !== 'mixed'), results, rules)
+    : 0;
   const auto = lines.filter((l) => l.source === 'auto');
   if (!auto.length) return { updated: 0, kurasStarts };
   await db.query(

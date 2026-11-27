@@ -9,6 +9,7 @@
  */
 import { summarizeStops } from './no-flow-metrics.js';
 import { loadUnexplainedStopsByOperation } from './no-flow-unexplained.js';
+import { loadKurasPeriodsByLine } from './kuras-periods.js';
 
 const HOUR_MS = 3600000;
 const ms = (v) => (v == null ? NaN : new Date(v).getTime());
@@ -84,10 +85,32 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
   let kurasLineQty = 0;
   let totalLineQty = 0;
   let kurasStart = null;
+  const mixedPeriods = [];
+  const mixedSpans = [];
+  let mixedQtyKnown = true;
   for (const line of lines) {
     const split = splitLine(line, endMs);
     if (!split) continue;
     totalLineQty += lineQty(line);
+    if (line.movementType === 'mixed') {
+      // pumping carries on for the whole entry; each cleaned palka is a period inside it
+      normalSpans.push([split.s, split.e]);
+      let lineKurasQty = 0;
+      for (const p of line.kurasPeriods || []) {
+        const ps = Math.max(ms(p.startAt ?? p.startedAt), split.s);
+        const pe = Math.min(p.endAt ?? p.endedAt ? ms(p.endAt ?? p.endedAt) : split.e, split.e);
+        if (!Number.isFinite(ps) || !Number.isFinite(pe) || pe <= ps) continue;
+        kurasSpans.push([ps, pe]);
+        mixedSpans.push([ps, pe]);
+        const q = Number(p.qty) > 0 ? Number(p.qty) : null;
+        if (q == null) mixedQtyKnown = false;
+        lineKurasQty += q || 0;
+        mixedPeriods.push({ palka: p.palka, startedAt: new Date(ps).toISOString(), endedAt: new Date(pe).toISOString(), hours: round2((pe - ps) / HOUR_MS), qty: q });
+        kurasStart = kurasStart == null ? ps : Math.min(kurasStart, ps);
+      }
+      kurasLineQty += Math.min(lineKurasQty, lineQty(line));
+      continue;
+    }
     if (split.k == null) {
       normalSpans.push([split.s, split.e]);
       continue;
@@ -149,6 +172,9 @@ export function buildRateBreakdown({ movedQty, firstLoggedAt, lastLoggedAt, line
     },
     stopCount: stops.stops.length,
     // detected stops (gaps, flat ATG) that still need a reason, in hours
+    mixed: mixedPeriods.length
+      ? { hours: round2(spanHours(unionSpans(mixedSpans))), periods: mixedPeriods, qtyKnown: mixedQtyKnown }
+      : null,
     unexplainedCount: unexplained.length,
     unexplainedHours: round2(unexplained.reduce((t, u) => t + (Number(u.minutes) || 0), 0) / 60) ?? 0,
     normal: { qty: round2(normalQty), hours: round2(normalHours), rateMtH: rate(normalQty, normalHours) },
@@ -203,7 +229,7 @@ export async function loadRateBreakdownInputs(db, operationIds) {
       movementType: row.movement_type,
       kurasStartedAt: toIso(row.kuras_started_at),
     });
-    if (row.kuras_started_at && row.movement_type !== 'kuras') splitLineIds.push(Number(row.id));
+    if (row.kuras_started_at && row.movement_type !== 'kuras' && row.movement_type !== 'mixed') splitLineIds.push(Number(row.id));
   }
   for (const row of eventsR.rows) {
     const opId = Number(row.operation_id);
@@ -217,6 +243,12 @@ export async function loadRateBreakdownInputs(db, operationIds) {
     });
   }
   out.unexplained = await loadUnexplainedStopsByOperation(db, ids);
+  const mixedIds = [];
+  for (const list of out.lines.values()) for (const l of list) if (l.movementType === 'mixed') mixedIds.push(l.id);
+  if (mixedIds.length) {
+    const periods = await loadKurasPeriodsByLine(db, mixedIds);
+    for (const list of out.lines.values()) for (const l of list) if (periods.has(l.id)) l.kurasPeriods = periods.get(l.id);
+  }
   if (splitLineIds.length) {
     const hoursR = await db.query(
       `SELECT load_line_id, hour_start, hour_end, qty_moved

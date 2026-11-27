@@ -128,3 +128,35 @@ test('detected stops without a reason are summed in hours', () => {
   });
   assert.equal(r.unexplainedHours, 4);
 });
+
+test('a Mixed entry keeps pumping for its whole window; palka periods are cleaned alongside it', () => {
+  const r = buildRateBreakdown({
+    ...base,
+    movedQty: 1000,
+    lines: [line(1, 0, 10, 1000, {
+      movementType: 'mixed',
+      kurasPeriods: [{ palka: '1B', startAt: iso(2), endAt: iso(4), qty: 100 }, { palka: '2A', startAt: iso(3), endAt: iso(6), qty: null }],
+    })],
+    events: [],
+  });
+  assert.equal(r.normal.hours, 10);
+  assert.equal(r.kuras.hours, 4);
+  assert.equal(r.kuras.qty, 100);
+  assert.equal(r.normal.qty, 900);
+  assert.equal(r.mixed.hours, 4);
+  assert.equal(r.mixed.qtyKnown, false);
+  assert.deepEqual(r.mixed.periods.map((p) => p.palka), ['1B', '2A']);
+});
+
+test('a Mixed entry without any period quantity is not split', () => {
+  const r = buildRateBreakdown({
+    ...base,
+    movedQty: 600,
+    lines: [line(1, 0, 10, 600, { movementType: 'mixed', kurasPeriods: [{ palka: '1B', startAt: iso(1), endAt: iso(3), qty: null }] })],
+    events: [],
+  });
+  assert.equal(r.kuras.qty, 0);
+  assert.equal(r.normal.qty, 600);
+  assert.equal(r.kuras.rateMtH, null);
+  assert.equal(r.mixed.hours, 2);
+});

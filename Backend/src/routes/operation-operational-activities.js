@@ -40,6 +40,7 @@ import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js'
 import { loadSamplingDecisionPills } from '../lib/sampling-commodity-qc.js';
 import { parseMovementTypeInput } from '../lib/kuras-movement.js';
 import { kurasStartInsideEntry, parseKurasStartInput, resolveKurasStartColumns } from '../lib/kuras-start.js';
+import { insertKurasPeriods, loadKurasPeriodsByLine, parseKurasPeriods } from '../lib/kuras-periods.js';
 import { isFeatureOn } from '../lib/feature-flags.js';
 import {
   loadPriorMovementTags,
@@ -423,6 +424,21 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       ? parseKurasStartInput(row.kurasStart, i, (s) => parseScheduleInstantToIso(s, scheduleTz))
       : { ok: true, value: undefined };
     if (!kurasStartParsed.ok) return { ok: false, status: 400, error: kurasStartParsed.error };
+    if (movementParsed.value === 'mixed' && !isFeatureOn('netRate')) {
+      return { ok: false, status: 400, error: `cargoLoadLines[${i}].movementType mixed is not available` };
+    }
+    let kurasPeriods = [];
+    if (movementParsed.value === 'mixed') {
+      const periodsParsed = parseKurasPeriods(row.kurasPeriods, {
+        lineIndex: i,
+        toIso: (s) => parseScheduleInstantToIso(s, scheduleTz),
+        startIso,
+        endIso,
+        qty: qty ?? manualQty,
+      });
+      if (!periodsParsed.ok) return { ok: false, status: 400, error: periodsParsed.error };
+      kurasPeriods = periodsParsed.value;
+    }
     const manualKurasIso = kurasStartParsed.value !== 'auto' && kurasStartParsed.value !== 'none' ? kurasStartParsed.value : null;
     if (manualKurasIso && !kurasStartInsideEntry(manualKurasIso, startIso, endIso)) {
       return { ok: false, status: 400, error: `cargoLoadLines[${i}]: kuras start must be inside the entry time` };
@@ -430,7 +446,8 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
 
     parsed.push({
       movementType: movementParsed.value,
-      kurasStart: kurasStartParsed.value,
+      kurasStart: movementParsed.value === 'mixed' ? 'none' : kurasStartParsed.value,
+      kurasPeriods,
       qty,
       manualQty,
       atgQtyMode,
@@ -592,6 +609,7 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     manualOverrideTankIds: p.overrideEntries.map((e) => e.tankId),
     movementType: p.movementType,
     kurasStart: p.kurasStart,
+    kurasPeriods: p.kurasPeriods || [],
   }));
   return { ok: true, lines, siCommodityOptions };
 }
@@ -798,7 +816,8 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
     const loadLineId = Number(ins.rows[0].id);
     lineIds.push(loadLineId);
     await insertLoadLineTanks(client, loadLineId, ln.tankIds || []);
-    out.push(mapCargoLoadLineRow(ins.rows[0]));
+    const savedPeriods = await insertKurasPeriods(client, loadLineId, ln.kurasPeriods || []);
+    out.push({ ...mapCargoLoadLineRow(ins.rows[0]), kurasPeriods: savedPeriods });
   }
   const tankMap = await fetchTanksForLoadLineIds(client, lineIds);
   return out.map((row, i) => {
@@ -950,12 +969,13 @@ async function fetchCargoLoadLinesForActivityIds(q, activityIds, optionsById = n
   );
   const lineIds = r.rows.map((row) => Number(row.id));
   const tankMap = await fetchTanksForLoadLineIds(q, lineIds);
+  const periodMap = await loadKurasPeriodsByLine(q, lineIds);
   const map = new Map();
   for (const row of r.rows) {
     const aid = Number(row.operational_activity_id);
     if (!map.has(aid)) map.set(aid, []);
     const tanks = tankMap.get(Number(row.id)) || [];
-    let mapped = mapCargoLoadLineRow(row, tanks);
+    let mapped = { ...mapCargoLoadLineRow(row, tanks), kurasPeriods: periodMap.get(Number(row.id)) || [] };
     if (optionsById) {
       mapped = enrichCargoLoadLineCommodityDisplay(mapped, optionsById);
     }
@@ -1936,6 +1956,13 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
                     'kurasStartedAt', l.kuras_started_at,
                     'kurasStartSource', l.kuras_start_source,
                     'kurasStartReason', l.kuras_start_reason,
+                    'kurasPeriods', COALESCE((
+                      SELECT jsonb_agg(
+                               jsonb_build_object('id', p.id, 'palka', p.palka, 'startAt', p.started_at, 'endAt', p.ended_at, 'qty', p.qty)
+                               ORDER BY p.started_at ASC, p.id ASC
+                             )
+                      FROM operation_cargo_kuras_periods p WHERE p.load_line_id = l.id
+                    ), '[]'::jsonb),
                     'tanks', COALESCE(lt.tanks_json, '[]'::jsonb)
                   )
                   ORDER BY l.line_order ASC, l.id ASC
@@ -2070,6 +2097,15 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
           kurasStartedAt: l.kurasStartedAt ? new Date(l.kurasStartedAt).toISOString() : null,
           kurasStartSource: l.kurasStartSource || 'auto',
           kurasStartReason: l.kurasStartReason ?? null,
+          kurasPeriods: Array.isArray(l.kurasPeriods)
+            ? l.kurasPeriods.map((p) => ({
+                id: String(p.id),
+                palka: p.palka,
+                startAt: p.startAt ? new Date(p.startAt).toISOString() : null,
+                endAt: p.endAt ? new Date(p.endAt).toISOString() : null,
+                qty: p.qty != null ? Number(p.qty) : null,
+              }))
+            : [],
         };
       });
       const unionFromLines = unionTanksFromLines(cargoLoadLines);

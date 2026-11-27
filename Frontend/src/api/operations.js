@@ -58,6 +58,7 @@ export function mapCargoLoadLineForApi(l, tz) {
   // Movement type (auto / normal / kuras) and kuras start (auto / none / instant); omitted keeps the stored value.
   if (l.movementType != null && l.movementType !== '') row.movementType = l.movementType
   if (l.kurasStart !== undefined) row.kurasStart = l.kurasStart
+  if (Array.isArray(l.kurasPeriods)) row.kurasPeriods = l.kurasPeriods
   return row
 }
 

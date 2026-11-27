@@ -95,6 +95,7 @@ export function viewModelFromOperationalEntries(entries, purpose) {
               kurasStartedAt: l.kurasStartedAt ?? null,
               kurasStartSource: l.kurasStartSource === 'manual' ? 'manual' : 'auto',
               kurasStartReason: l.kurasStartReason ?? null,
+              kurasPeriods: Array.isArray(l.kurasPeriods) ? l.kurasPeriods : [],
               manualOverride: l.manualOverride ?? l.manual_override ?? null,
               startAt: l.startAt ?? l.start_at ?? null,
               endAt: l.endAt ?? l.end_at ?? null,

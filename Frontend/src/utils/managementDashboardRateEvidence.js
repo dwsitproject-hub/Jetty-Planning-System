@@ -48,6 +48,7 @@ export function rateEvidenceSections(row, formatAt = (v) => v) {
         { label: 'Stops recorded in all phases', value: String(b.stopCount ?? 0) },
       ],
     },
+    ...mixedSection(b, formatAt),
     ...downtimeReasonSection(b),
   ]
 }
@@ -59,4 +60,18 @@ function downtimeReasonSection(b) {
   const rows = (d.reasons || []).filter((r) => r.hours > 0).map((r) => ({ label: r.name, value: hours(r.hours) }))
   if (d.noReasonHours > 0) rows.push({ label: 'No Reason', value: hours(d.noReasonHours), kind: 'muted' })
   return rows.length ? [{ key: 'downtimeReasons', title: 'Total downtime by reason', rows }] : []
+}
+
+/** Mixed (Normal & Kuras): palkas cleaned while pumping went on. Without a quantity nothing is split. */
+function mixedSection(b, formatAt) {
+  const m = b.mixed
+  if (!m?.periods?.length) return []
+  const rows = [{ label: 'Mixed hours (pumping and cleaning at the same time)', value: hours(m.hours), kind: 'computed' }]
+  for (const p of m.periods) {
+    const when = `${formatAt(p.startedAt)} → ${formatAt(p.endedAt)}`
+    const qty = p.qty != null ? mt(p.qty) : 'no quantity'
+    rows.push({ label: `Palka ${p.palka}`, value: `${hours(p.hours)} · ${qty} · ${when}` })
+  }
+  if (!m.qtyKnown) rows.push({ label: 'Note', value: 'Pumped and Cleaned are only split for palkas with a quantity.', kind: 'muted' })
+  return [{ key: 'mixed', title: 'Mixed (Normal & Kuras)', rows }]
 }

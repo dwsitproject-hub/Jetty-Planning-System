@@ -39,6 +39,11 @@ function num(value, locale) {
 
 /** Sentence under the field for what is stored now. */
 export function describeKurasStart(t, draft, { formatAt, locale } = {}) {
+  if (draft?.kurasStartTouched) {
+    if (draft.kurasStartMode === 'manual') return t('kurasStartPickTime')
+    if (draft.kurasStartMode === 'none') return t('kurasStartManualNone')
+    return t('kurasStartPending')
+  }
   const p = draft?.persistedKurasStart
   if (!p) return t('kurasStartPending')
   if (p.source === 'manual') {

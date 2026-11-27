@@ -6,7 +6,7 @@
 /** Draft fields for the entry form: select value plus what is stored on the server. */
 export function movementDraftFromLine(line) {
   const source = line?.movementTypeSource === 'manual' ? 'manual' : 'auto'
-  const type = line?.movementType === 'kuras' || line?.movementType === 'normal' ? line.movementType : null
+  const type = ['kuras', 'normal', 'mixed'].includes(line?.movementType) ? line.movementType : null
   return {
     movementType: source === 'manual' && type ? type : 'auto',
     persistedMovement: {
@@ -20,6 +20,7 @@ export function movementDraftFromLine(line) {
 }
 
 export function movementTypeLabel(t, type) {
+  if (type === 'mixed') return t('cargoOpsMovementMixedShort')
   return type === 'kuras' ? 'Kuras' : t('cargoOpsMovementNormal')
 }
 
